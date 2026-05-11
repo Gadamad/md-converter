@@ -4,12 +4,14 @@ Universal Markdown Converters
 Five format converters with shared utilities for consistent output.
 """
 
+import hashlib
 import re
 import shutil
 import time
 from datetime import date
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 import os
 import ssl
@@ -67,6 +69,21 @@ def safe_filename(name: str) -> str:
     return re.sub(r'\s+', '-', safe).lower()
 
 
+def output_stem(title: str, source_file: str, source_type: str) -> str:
+    """Build a stable output stem, avoiding collisions for URL-based pages."""
+    stem = safe_filename(title) or "converted"
+
+    if source_type != "html" or not source_file.startswith(("http://", "https://")):
+        return stem
+
+    parsed = urlsplit(source_file)
+    tail = Path(parsed.path).name.replace(".", " ")
+    tail_slug = safe_filename(tail)
+    url_hash = hashlib.sha1(source_file.encode("utf-8")).hexdigest()[:8]
+    suffix = f"{tail_slug}-{url_hash}" if tail_slug else url_hash
+    return f"{stem}-{suffix}"
+
+
 def normalize_blanks(text: str) -> str:
     """Collapse 3+ consecutive newlines into 2."""
     return re.sub(r'\n{3,}', '\n\n', text)
@@ -107,7 +124,7 @@ def write_output(
 ) -> ConvertResult:
     """Write markdown to output_dir and optionally copy to vault."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    md_name = f"{safe_filename(title)}.md"
+    md_name = f"{output_stem(title, source_file, source_type)}.md"
     md_path = output_dir / md_name
 
     header = build_header(title, source_file, word_count, **(header_extras or {}))
