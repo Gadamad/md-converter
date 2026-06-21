@@ -165,6 +165,34 @@ Do nothing. `config.json` is optional.
 
 That is expected when `config.json` does not exist yet.
 
+### A URL returns `429 Too Many Requests`
+
+Some publishers reject generic script-style HTTP headers even when the page is public.
+
+The current app now fetches URLs with browser-like headers, which fixes known cases like VentureBeat rejecting the older `MDConverter/1.0` request header.
+
+It also now retries a small set of transient failures for URL fetches:
+
+- `429 Too Many Requests`
+- `500`, `502`, `503`, `504`
+- temporary connection errors and timeouts
+
+When a site sends a valid `Retry-After` header, the app uses it before retrying. Otherwise it falls back to a short exponential backoff.
+
+If your installed app predates this fix, rebuild or reinstall it:
+
+```bash
+bash scripts/build_app.sh
+```
+
+Or run the full installer again:
+
+```bash
+bash install.sh
+```
+
+Real publisher-side throttling can still happen. If a site is genuinely rate-limiting traffic, wait and retry later.
+
 ### The app will not build
 
 Re-run:

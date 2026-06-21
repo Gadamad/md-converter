@@ -5,10 +5,12 @@ Five format converters with shared utilities for consistent output.
 """
 
 import hashlib
+import random
 import re
 import shutil
 import time
-from datetime import date
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
@@ -46,6 +48,72 @@ from docx import Document
 from docx.table import Table as DocxTable
 from markdownify import markdownify as html_to_md
 from striprtf.striprtf import rtf_to_text
+
+
+WEB_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/136.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+WEB_FETCH_MAX_ATTEMPTS = 3
+WEB_FETCH_BASE_DELAY_SECONDS = 1.0
+WEB_FETCH_MAX_DELAY_SECONDS = 8.0
+WEB_FETCH_JITTER_SECONDS = 0.25
+WEB_FETCH_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+WEB_FETCH_RETRYABLE_EXCEPTIONS = (requests.ConnectionError, requests.Timeout)
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse Retry-After seconds or HTTP date into a sleep delay."""
+    if not value:
+        return None
+
+    value = value.strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+
+    return max(seconds, 0.0)
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    """Calculate a short exponential backoff with a small amount of jitter."""
+    base_delay = min(WEB_FETCH_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), WEB_FETCH_MAX_DELAY_SECONDS)
+    return base_delay + random.uniform(0.0, WEB_FETCH_JITTER_SECONDS)
+
+
+def _fetch_url_html(url: str) -> str:
+    """Fetch HTML with conservative retries for transient failures only."""
+    for attempt in range(1, WEB_FETCH_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(url, timeout=30, headers=WEB_REQUEST_HEADERS, verify=_CA_FILE)
+        except WEB_FETCH_RETRYABLE_EXCEPTIONS:
+            if attempt == WEB_FETCH_MAX_ATTEMPTS:
+                raise
+            time.sleep(_retry_delay_seconds(attempt))
+            continue
+
+        if resp.status_code in WEB_FETCH_RETRYABLE_STATUSES and attempt < WEB_FETCH_MAX_ATTEMPTS:
+            retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
+            time.sleep(retry_after if retry_after is not None else _retry_delay_seconds(attempt))
+            continue
+
+        resp.raise_for_status()
+        return resp.text
+
+    raise RuntimeError("URL fetch retry loop exited unexpectedly")
 
 
 # ---------------------------------------------------------------------------
@@ -367,9 +435,7 @@ def convert_html(path_or_url: str, output_dir: Path, vault_dir: Path | None = No
     is_url = path_or_url.startswith("http://") or path_or_url.startswith("https://")
 
     if is_url:
-        resp = requests.get(path_or_url, timeout=30, headers={"User-Agent": "MDConverter/1.0"}, verify=_CA_FILE)
-        resp.raise_for_status()
-        html = resp.text
+        html = _fetch_url_html(path_or_url)
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.string.strip() if soup.title and soup.title.string else path_or_url
         source = path_or_url
