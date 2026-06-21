@@ -142,5 +142,48 @@ class ConvertHtmlTests(unittest.TestCase):
         sleep_mock.assert_not_called()
 
 
+class ConvertSpreadsheetTests(unittest.TestCase):
+    def test_route_converts_xlsx_each_sheet_to_separate_markdown_file(self):
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            workbook_path = temp_path / "Workbook.xlsx"
+            output_dir = temp_path / "out"
+
+            workbook = Workbook()
+            summary = workbook.active
+            summary.title = "Summary"
+            summary.append(["Name", "Amount"])
+            summary.append(["Alpha", 10])
+
+            data_sheet = workbook.create_sheet("Data Sheet")
+            data_sheet.append(["Item", "Status"])
+            data_sheet.append(["Beta", "Ready"])
+
+            workbook.save(workbook_path)
+
+            result = converters.route(str(workbook_path), output_dir)
+
+            spreadsheet_dir = output_dir / "spreadsheets"
+            summary_md = spreadsheet_dir / "workbook-summary.md"
+            data_md = spreadsheet_dir / "workbook-data-sheet.md"
+
+            self.assertTrue(result.success)
+            self.assertEqual(Path(result.output_path), spreadsheet_dir)
+            self.assertIn("2 sheets", result.message)
+            self.assertTrue(summary_md.exists())
+            self.assertTrue(data_md.exists())
+
+            summary_text = summary_md.read_text(encoding="utf-8")
+            data_text = data_md.read_text(encoding="utf-8")
+            self.assertIn("| Name | Amount |", summary_text)
+            self.assertIn("| Alpha | 10 |", summary_text)
+            self.assertNotIn("Beta", summary_text)
+            self.assertIn("| Item | Status |", data_text)
+            self.assertIn("| Beta | Ready |", data_text)
+            self.assertNotIn("Alpha", data_text)
+
+
 if __name__ == "__main__":
     unittest.main()

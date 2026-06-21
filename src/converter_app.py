@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MD Converter — Universal Markdown Converter App
-Drag-and-drop (or browse) any PDF, DOCX, HTML, TXT, or RTF file.
+Drag-and-drop (or browse) any PDF, DOCX, XLSX, HTML, TXT, or RTF file.
 Converts to Markdown, organizes by type, delivers to Obsidian vault.
 """
 
@@ -46,9 +46,10 @@ VAULT_DIR = (
 )
 
 FILETYPES = (
-    "All supported (*.pdf;*.docx;*.html;*.htm;*.txt;*.rtf)",
+    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf)",
     "PDF files (*.pdf)",
     "Word files (*.docx)",
+    "Excel files (*.xlsx)",
     "HTML files (*.html;*.htm)",
     "Text files (*.txt)",
     "RTF files (*.rtf)",
@@ -224,11 +225,11 @@ HTML = """<!DOCTYPE html>
 <body>
 
 <h1>Markdown Converter</h1>
-<div class="subtitle">PDF &nbsp;|&nbsp; DOCX &nbsp;|&nbsp; HTML / URL &nbsp;|&nbsp; TXT &nbsp;|&nbsp; RTF</div>
+<div class="subtitle">PDF &nbsp;|&nbsp; DOCX &nbsp;|&nbsp; XLSX &nbsp;|&nbsp; HTML / URL &nbsp;|&nbsp; TXT &nbsp;|&nbsp; RTF</div>
 
 <div id="drop-zone">
   <div class="main-text">Drop files here or click to browse</div>
-  <div class="sub-text">PDF, DOCX, HTML, TXT, RTF</div>
+  <div class="sub-text">PDF, DOCX, XLSX, HTML, TXT, RTF</div>
   <div class="badge" id="badge"></div>
 </div>
 

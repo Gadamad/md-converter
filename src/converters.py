@@ -47,6 +47,7 @@ from bs4 import BeautifulSoup
 from docx import Document
 from docx.table import Table as DocxTable
 from markdownify import markdownify as html_to_md
+from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
 
@@ -214,12 +215,13 @@ def write_output(
 # Format routing
 # ---------------------------------------------------------------------------
 
-SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf'}
+SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf', '.xlsx'}
 
 SUBFOLDER = {
     '.pdf': 'pdf', '.docx': 'docx',
     '.html': 'html', '.htm': 'html',
     '.txt': 'txt', '.rtf': 'rtf',
+    '.xlsx': 'spreadsheets',
 }
 
 
@@ -243,6 +245,7 @@ def route(path: str, base_output: Path, vault_dir: Path | None = None) -> Conver
         '.htm': convert_html,
         '.txt': convert_txt,
         '.rtf': convert_rtf,
+        '.xlsx': convert_xlsx,
     }
     return converters[ext](path, out, vault_dir)
 
@@ -506,8 +509,28 @@ def convert_rtf(path: str, output_dir: Path, vault_dir: Path | None = None) -> C
     return write_output(text, p.stem, p.name, word_count, output_dir, "rtf", vault_dir)
 
 
+def convert_xlsx(path: str, output_dir: Path, vault_dir: Path | None = None) -> ConvertResult:
+    """Convert each XLSX workbook sheet to a separate Markdown file."""
+    sheet_count, total_words, output_paths = write_xlsx_sheets(
+        path,
+        output_dir,
+        vault_dir,
+        write_output,
+    )
+
+    if sheet_count == 0:
+        return ConvertResult(False, "", 0, "SKIPPED (empty workbook)")
+
+    return ConvertResult(
+        True,
+        str(output_dir),
+        total_words,
+        f"OK -> {sheet_count} sheets: {', '.join(output_paths)}",
+    )
+
+
 # ---------------------------------------------------------------------------
-# 6. Raw pasted text converter
+# 7. Raw pasted text converter
 # ---------------------------------------------------------------------------
 
 def convert_raw_text(text: str, output_dir: Path, vault_dir: Path | None = None) -> ConvertResult:
@@ -527,7 +550,7 @@ def convert_raw_text(text: str, output_dir: Path, vault_dir: Path | None = None)
 
 
 # ---------------------------------------------------------------------------
-# 7. Pasted input router (text or URL)
+# 8. Pasted input router (text or URL)
 # ---------------------------------------------------------------------------
 
 def convert_pasted(text: str, base_output: Path, vault_dir: Path | None = None) -> ConvertResult:

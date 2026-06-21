@@ -1,6 +1,6 @@
 # MD Converter
 
-Turn PDFs, DOCX files, web pages, pasted text, TXT, and RTF into clean Markdown you can actually use.
+Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into clean Markdown you can actually use.
 
 `MD Converter` gives you two ways to work:
 
@@ -22,6 +22,7 @@ Everything runs locally on your machine. No API calls, no cloud upload, no hidde
 | --- | --- |
 | PDF | Extracts selectable text, or falls back to OCR for scanned PDFs |
 | DOCX | Preserves headings, bold, italics, lists, quotes, and tables |
+| XLSX | Converts each workbook sheet into a separate Markdown table file |
 | HTML / URL | Reads local HTML or fetches a URL and converts the main content to Markdown |
 | TXT | Wraps plain text in a clean Markdown document |
 | RTF | Converts RTF content into plain Markdown text |
@@ -66,6 +67,12 @@ Convert one or more files:
 python3 src/converter_app.py document.pdf report.docx notes.txt
 ```
 
+Convert a workbook, writing one Markdown file per sheet:
+
+```bash
+python3 src/converter_app.py workbook.xlsx
+```
+
 Convert a URL:
 
 ```bash
@@ -78,6 +85,7 @@ Output is written to `converted/` and grouped by type:
 converted/
   pdf/
   docx/
+  spreadsheets/
   html/
   txt/
   rtf/
@@ -127,6 +135,8 @@ Each converted file gets:
 - Optional extra metadata such as page count or OCR timing, depending on the source.
 
 If vault delivery is enabled, the copied version also gets YAML frontmatter for easier use in Obsidian.
+
+XLSX workbook conversion creates one Markdown file per non-empty sheet. Formulas are read as the cached workbook values available in the file; the converter does not recalculate formulas.
 
 ## OCR And Privacy
 
