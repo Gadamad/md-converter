@@ -88,6 +88,8 @@ APP_PATH="$PROJECT_DIR/src/dist/MD Converter.app"
 if [ -d "$APP_PATH" ]; then
     echo ""
     echo "Installing to /Applications..."
+    pkill -x "MD Converter" 2>/dev/null || true
+    sleep 1
     rm -rf "/Applications/MD Converter.app"
     cp -R "$APP_PATH" "/Applications/MD Converter.app"
     echo "  Installed: /Applications/MD Converter.app"

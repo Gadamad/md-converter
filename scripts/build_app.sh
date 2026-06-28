@@ -40,6 +40,7 @@ echo ""
 # -------------------------------------------------------------------
 echo "[2/3] Cleaning previous build artifacts..."
 rm -rf "$SRC_DIR/build" "$SRC_DIR/dist" "$SRC_DIR/MD Converter.spec"
+find "$SRC_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
 echo "  Done."
 echo ""
 
