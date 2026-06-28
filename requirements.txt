@@ -16,3 +16,4 @@ pytesseract>=0.3.10
 # macOS native drag-and-drop (optional — app works without it)
 pyobjc-core>=10.0; sys_platform == "darwin"
 pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pyobjc-framework-Vision>=10.0; sys_platform == "darwin"
