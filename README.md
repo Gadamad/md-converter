@@ -91,17 +91,70 @@ converted/
   rtf/
 ```
 
+When you run the installed macOS app, converted output is written to a persistent user location instead of inside the app bundle:
+
+```text
+~/Documents/MD Converter/converted/
+```
+
+That means reinstalling the app no longer removes previous converted files.
+
 ## GUI Walkthrough
 
 The app is designed for non-technical use:
 
 1. Drop files onto the window, or click to browse.
-2. Paste a URL to convert a web page.
-3. Paste plain text to save it as Markdown.
-4. Click `Convert`.
-5. Use `Open Output` to jump straight to the generated files.
+2. Use `Select Folder` to stage one quote-image folder and replace any previously staged quote folders.
+3. Use `Add Folder` to append another quote-image folder to the current queue.
+4. Remove one staged quote folder or clear the folder queue directly inside the main operational panel.
+5. Paste a URL to convert a web page.
+6. Paste plain text to save it as Markdown.
+7. Click `Convert`.
+8. Watch per-image progress in the progress bar and summary line while larger quote batches run.
+9. Use `Abort` to stop a running batch after the current image finishes.
+10. Use `Open Output` to jump straight to the generated files.
+11. Use `Preferences` for app-wide defaults like theme, Raw OCR visibility, output folder, and auto-open behavior.
 
 If an Obsidian vault is configured, you can also send copies there automatically.
+
+### Quote Image Operational Panel
+
+The quote-image workflow uses one larger operational panel instead of separate staging and log sections:
+
+- Before conversion, that panel shows the staged quote folders with inline remove controls.
+- `Select Folder` replaces the current quote-folder queue by default.
+- `Add Folder` lets you intentionally combine another quote-image folder into the same batch.
+- Each staged folder shows its folder name, full path, and image count.
+- You can remove one staged folder at a time or clear the whole folder queue.
+- During conversion, the same panel switches into live progress/log mode.
+- Progress updates per image, so a batch with hundreds of screenshots shows where it is.
+- `Abort` is cooperative: the app stops after the current image completes and keeps any partial output already written.
+- Quote exports are merged into one Markdown file per batch.
+- Quote export filenames are versioned automatically, for example:
+  - `stoicism-app_quotes_355-images_20260627_174500.md`
+  - `stoicism-app_quotes_355-images_20260627_174500_2.md`
+
+### Preferences
+
+The app keeps the main conversion screen focused and uses a small Preferences modal instead of a sidebar.
+
+Current Preferences include:
+
+- **Theme** — `System`, `Dark`, or `Light`
+- **Raw OCR display**
+  - `Show when different only` (recommended default)
+  - `Always show`
+  - `Never show`
+- **Output directory** — use the default output location or choose a custom one
+- **Auto-open output after export** — open the result folder automatically after successful exports
+
+Preferences are stored persistently for the installed app at:
+
+```text
+~/Library/Application Support/MD Converter/preferences.json
+```
+
+This version does **not** add a History panel or sidebar. The main screen remains dedicated to conversion.
 
 ## Optional Obsidian Vault Delivery
 
@@ -137,6 +190,13 @@ Each converted file gets:
 If vault delivery is enabled, the copied version also gets YAML frontmatter for easier use in Obsidian.
 
 XLSX workbook conversion creates one Markdown file per non-empty sheet. Formulas are read as the cached workbook values available in the file; the converter does not recalculate formulas.
+
+Quote-image folder conversion creates one merged Markdown export per batch and includes:
+
+- source image name for each extracted record
+- detected author line when confidently separated
+- quote body
+- raw OCR text for traceability
 
 ## OCR And Privacy
 
