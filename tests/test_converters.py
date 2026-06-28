@@ -185,5 +185,159 @@ class ConvertSpreadsheetTests(unittest.TestCase):
             self.assertNotIn("Alpha", data_text)
 
 
+class ImageRoutingTests(unittest.TestCase):
+    def test_route_sends_png_files_to_image_quote_converter(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "quote-card.png"
+            image_path.write_bytes(b"not-a-real-png")
+            output_dir = temp_path / "out"
+            expected = converters.ConvertResult(
+                True,
+                str(output_dir / "quotes" / "extracted_quotes.md"),
+                42,
+                "OK -> extracted_quotes.md",
+            )
+
+            with mock.patch("converters.convert_image_quotes", return_value=expected) as image_mock:
+                result = converters.route(str(image_path), output_dir)
+
+        self.assertEqual(result, expected)
+        image_mock.assert_called_once_with(str(image_path), output_dir / "quotes", None)
+
+    def test_convert_image_folder_quotes_writes_one_merged_markdown_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            first_image = temp_path / "a-quote.png"
+            second_image = temp_path / "b-quote.png"
+            first_image.write_bytes(b"img")
+            second_image.write_bytes(b"img")
+            output_dir = temp_path / "out"
+
+            record_one = mock.Mock(
+                quote="First quote.",
+                author="Seneca",
+                source_image=first_image.name,
+                raw_ocr="First quote.\n— Seneca",
+            )
+            record_two = mock.Mock(
+                quote="Second quote.",
+                author="",
+                source_image=second_image.name,
+                raw_ocr="Second quote.",
+            )
+
+            with mock.patch("converters.ocr_image", side_effect=[mock.Mock(text="ocr one"), mock.Mock(text="ocr two")]), \
+                 mock.patch("converters.extract_quote_records", side_effect=[[record_one], [record_two]]):
+                result = converters.convert_image_folder_quotes(
+                    [str(first_image), str(second_image)],
+                    output_dir,
+                )
+
+            self.assertTrue(result.success)
+            markdown = Path(result.output_path).read_text(encoding="utf-8")
+            self.assertIn("**Source image:** a-quote.png", markdown)
+            self.assertIn("**Author:** Seneca", markdown)
+            self.assertIn("**Source image:** b-quote.png", markdown)
+            self.assertIn("Second quote.", markdown)
+
+    def test_convert_image_folder_quotes_uses_folder_slug_and_timestamp_filename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "Stoicism App"
+            temp_path.mkdir()
+            image_path = temp_path / "quote.png"
+            image_path.write_bytes(b"img")
+            output_dir = temp_path / "out"
+
+            record = mock.Mock(
+                quote="First quote.",
+                author="Seneca",
+                source_image=image_path.name,
+                raw_ocr="First quote.\n— Seneca",
+            )
+
+            fake_now = mock.Mock()
+            fake_now.strftime.return_value = "20260626_154233"
+
+            with mock.patch("converters.ocr_image", return_value=mock.Mock(text="ocr one")), \
+                 mock.patch("converters.extract_quote_records", return_value=[record]), \
+                 mock.patch("converters.datetime") as datetime_mock:
+                datetime_mock.now.return_value = fake_now
+                result = converters.convert_image_folder_quotes(
+                    [str(image_path)],
+                    output_dir,
+                )
+
+            self.assertTrue(result.success)
+            self.assertEqual(
+                Path(result.output_path).name,
+                "stoicism-app_quotes_1-images_20260626_154233.md",
+            )
+
+    def test_convert_image_folder_quotes_includes_image_count_for_multi_image_batch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "Stoicism App"
+            temp_path.mkdir()
+            first_image = temp_path / "quote-a.png"
+            second_image = temp_path / "quote-b.png"
+            first_image.write_bytes(b"img")
+            second_image.write_bytes(b"img")
+            output_dir = temp_path / "out"
+
+            record = mock.Mock(
+                quote="First quote.",
+                author="Seneca",
+                source_image=first_image.name,
+                raw_ocr="First quote.\n— Seneca",
+            )
+
+            fake_now = mock.Mock()
+            fake_now.strftime.return_value = "20260626_154233"
+
+            with mock.patch("converters.ocr_image", return_value=mock.Mock(text="ocr one")), \
+                 mock.patch("converters.extract_quote_records", return_value=[record]), \
+                 mock.patch("converters.datetime") as datetime_mock:
+                datetime_mock.now.return_value = fake_now
+                result = converters.convert_image_folder_quotes(
+                    [str(first_image), str(second_image)],
+                    output_dir,
+                )
+
+            self.assertEqual(
+                Path(result.output_path).name,
+                "stoicism-app_quotes_2-images_20260626_154233.md",
+            )
+
+    def test_convert_image_folder_quotes_avoids_same_second_filename_collision(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "Stoicism App"
+            temp_path.mkdir()
+            image_path = temp_path / "quote.png"
+            image_path.write_bytes(b"img")
+            output_dir = temp_path / "out"
+
+            record = mock.Mock(
+                quote="First quote.",
+                author="Seneca",
+                source_image=image_path.name,
+                raw_ocr="First quote.\n— Seneca",
+            )
+
+            fake_now = mock.Mock()
+            fake_now.strftime.return_value = "20260626_154233"
+
+            with mock.patch("converters.ocr_image", return_value=mock.Mock(text="ocr one")), \
+                 mock.patch("converters.extract_quote_records", return_value=[record]), \
+                 mock.patch("converters.datetime") as datetime_mock:
+                datetime_mock.now.return_value = fake_now
+                first = converters.convert_image_folder_quotes([str(image_path)], output_dir)
+                second = converters.convert_image_folder_quotes([str(image_path)], output_dir)
+
+            self.assertNotEqual(first.output_path, second.output_path)
+            self.assertTrue(Path(first.output_path).exists())
+            self.assertTrue(Path(second.output_path).exists())
+            self.assertEqual(Path(second.output_path).name, "stoicism-app_quotes_1-images_20260626_154233_2.md")
+
+
 if __name__ == "__main__":
     unittest.main()

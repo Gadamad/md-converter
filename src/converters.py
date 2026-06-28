@@ -9,9 +9,11 @@ import random
 import re
 import shutil
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
@@ -46,7 +48,10 @@ import requests
 from bs4 import BeautifulSoup
 from docx import Document
 from docx.table import Table as DocxTable
+from image_ocr import ocr_image
 from markdownify import markdownify as html_to_md
+from quote_markdown import render_quote_batch_markdown
+from quote_parser import extract_quote_records
 from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
@@ -128,6 +133,12 @@ class ConvertResult(NamedTuple):
     message: str
 
 
+@dataclass(frozen=True)
+class QuoteBatchHooks:
+    on_image_processed: Callable[[int, int, str], None] | None = None
+    should_cancel: Callable[[], bool] | None = None
+
+
 # ---------------------------------------------------------------------------
 # Shared utilities (extracted from pdf_to_md / docx_to_md)
 # ---------------------------------------------------------------------------
@@ -151,6 +162,31 @@ def output_stem(title: str, source_file: str, source_type: str) -> str:
     url_hash = hashlib.sha1(source_file.encode("utf-8")).hexdigest()[:8]
     suffix = f"{tail_slug}-{url_hash}" if tail_slug else url_hash
     return f"{stem}-{suffix}"
+
+
+def quote_batch_stem(paths: list[str]) -> str:
+    parent_paths = [str(Path(path).resolve().parent) for path in paths]
+    if not parent_paths:
+        slug = "quotes"
+    else:
+        common_parent = Path(os.path.commonpath(parent_paths))
+        slug = safe_filename(common_parent.name) or "quotes"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{slug}_quotes_{len(paths)}-images_{timestamp}"
+
+
+def unique_markdown_path(output_dir: Path, stem: str) -> Path:
+    candidate = output_dir / f"{stem}.md"
+    if not candidate.exists():
+        return candidate
+
+    suffix = 2
+    while True:
+        candidate = output_dir / f"{stem}_{suffix}.md"
+        if not candidate.exists():
+            return candidate
+        suffix += 1
 
 
 def normalize_blanks(text: str) -> str:
@@ -215,13 +251,14 @@ def write_output(
 # Format routing
 # ---------------------------------------------------------------------------
 
-SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf', '.xlsx'}
+SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf', '.xlsx', '.png', '.jpg', '.jpeg', '.webp'}
 
 SUBFOLDER = {
     '.pdf': 'pdf', '.docx': 'docx',
     '.html': 'html', '.htm': 'html',
     '.txt': 'txt', '.rtf': 'rtf',
     '.xlsx': 'spreadsheets',
+    '.png': 'quotes', '.jpg': 'quotes', '.jpeg': 'quotes', '.webp': 'quotes',
 }
 
 
@@ -246,8 +283,57 @@ def route(path: str, base_output: Path, vault_dir: Path | None = None) -> Conver
         '.txt': convert_txt,
         '.rtf': convert_rtf,
         '.xlsx': convert_xlsx,
+        '.png': convert_image_quotes,
+        '.jpg': convert_image_quotes,
+        '.jpeg': convert_image_quotes,
+        '.webp': convert_image_quotes,
     }
     return converters[ext](path, out, vault_dir)
+
+
+def convert_image_quotes(path: str, output_dir: Path, vault_dir: Path | None = None) -> ConvertResult:
+    return convert_image_folder_quotes([path], output_dir, vault_dir)
+
+
+def convert_image_folder_quotes(
+    paths: list[str],
+    output_dir: Path,
+    vault_dir: Path | None = None,
+    hooks: QuoteBatchHooks | None = None,
+    raw_ocr_mode: str = "different",
+) -> ConvertResult:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    records = []
+    total = len(paths)
+    processed = 0
+
+    for path in sorted(paths):
+        if hooks and hooks.should_cancel and hooks.should_cancel():
+            break
+        ocr_result = ocr_image(Path(path))
+        records.extend(extract_quote_records(ocr_result.text, source_image=Path(path).name))
+        processed += 1
+        if hooks and hooks.on_image_processed:
+            hooks.on_image_processed(processed, total, Path(path).name)
+
+    if not records:
+        if hooks and hooks.should_cancel and hooks.should_cancel():
+            return ConvertResult(False, "", 0, f"CANCELED ({processed}/{total} images processed)")
+        return ConvertResult(False, "", 0, "SKIPPED (no quotes found)")
+
+    markdown = render_quote_batch_markdown(records, raw_ocr_mode=raw_ocr_mode)
+    output_path = unique_markdown_path(output_dir, quote_batch_stem(paths))
+    output_path.write_text(markdown, encoding="utf-8")
+
+    if vault_dir:
+        vault_quotes_dir = vault_dir / "quotes"
+        vault_quotes_dir.mkdir(parents=True, exist_ok=True)
+        (vault_quotes_dir / output_path.name).write_text(markdown, encoding="utf-8")
+
+    total_words = sum(len(record.quote.split()) for record in records)
+    if hooks and hooks.should_cancel and hooks.should_cancel() and processed < total:
+        return ConvertResult(False, str(output_path), total_words, f"CANCELED -> {output_path.name} ({processed}/{total} images)")
+    return ConvertResult(True, str(output_path), total_words, f"OK -> {output_path.name}")
 
 
 # ---------------------------------------------------------------------------
