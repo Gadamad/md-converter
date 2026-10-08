@@ -14,6 +14,7 @@ from unittest import mock
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 MODULE_PATH = PROJECT_DIR / "src" / "converter_app.py"
+sys.path.insert(0, str(PROJECT_DIR / "src"))
 
 
 def load_converter_app(config_text=None, frozen=False, home_path: Path | None = None):

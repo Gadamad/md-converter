@@ -19,12 +19,18 @@ def reserve_output_path(directory: Path, stem: str, suffix: str = ".md") -> Path
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    atomic_write_chunks(path, (text,))
+
+
+def atomic_write_chunks(path: Path, chunks) -> None:
+    """Stream an iterable into an atomic replacement without joining it in RAM."""
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
                                          prefix=f".{path.name}.", delete=False) as stream:
             temporary = Path(stream.name)
-            stream.write(text)
+            for chunk in chunks:
+                stream.write(chunk)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)

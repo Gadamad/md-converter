@@ -47,7 +47,7 @@ class QuoteFolderUiTests(unittest.TestCase):
 
         self.assertIn('pywebview.api.get_preferences()', html)
         self.assertIn('pywebview.api.save_preferences(', html)
-        self.assertIn('pywebview.api.browse_output_directory()', html)
+        self.assertIn("callApi('browse_output_directory')", html)
 
     def test_browse_output_directory_does_not_persist_until_save(self):
         module = load_converter_app()

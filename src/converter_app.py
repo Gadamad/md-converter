@@ -22,6 +22,8 @@ import webview
 
 from converters import SUPPORTED, ConvertResult, route, convert_pasted, convert_image_folder_quotes
 from preferences import Preferences, default_preferences_path
+from quote_checkpoint import QuoteCheckpoint, recovery_checkpoints
+from app_version import VERSION
 
 try:
     from native_drop import setup_native_drop
@@ -34,9 +36,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 APP_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_QUOTE_FOLDER = Path(
-    "/Users/studioware/SynologyDrive/____AI/_Backup - all projects/_Projects/Stoicism app"
-)
+DEFAULT_QUOTE_FOLDER = Path.home() / "Pictures"
 
 
 def _output_dir() -> Path:
@@ -65,7 +65,8 @@ VAULT_DIR = (
 )
 
 FILETYPES = (
-    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf)",
+    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf;*.png;*.jpg;*.jpeg;*.webp)",
+    "Quote images (*.png;*.jpg;*.jpeg;*.webp)",
     "PDF files (*.pdf)",
     "Word files (*.docx)",
     "Excel files (*.xlsx)",
@@ -147,726 +148,8 @@ def cli_mode(paths: list[str], vault: bool = True):
 # Inline HTML for the pywebview GUI
 # ---------------------------------------------------------------------------
 
-HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MD Converter</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-    background: #1e1e2e; color: #cdd6f4;
-    display: flex; flex-direction: column;
-    height: 100vh; overflow: hidden;
-    user-select: none; -webkit-user-select: none;
-  }
-  h1 { font-size: 22px; font-weight: 700; text-align: center; padding-top: 16px; color: #fff; }
-  .subtitle { text-align: center; font-size: 12px; color: #6c7086; padding: 4px 0 10px; }
+from app_ui import HTML
 
-  /* Drop zone */
-  #drop-zone {
-    margin: 0 20px; padding: 26px 18px;
-    border: 2px dashed #585b70; border-radius: 10px;
-    background: #313244; text-align: center; cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
-    flex-shrink: 0;
-  }
-  #drop-zone:hover, #drop-zone.drag-over {
-    border-color: #a6e3a1; background: #3b3d50;
-  }
-  #drop-zone .main-text { font-size: 15px; color: #a6adc8; pointer-events: none; }
-  #drop-zone .sub-text  { font-size: 11px; color: #585b70; margin-top: 4px; pointer-events: none; }
-  #drop-zone .badge {
-    font-size: 11px; font-weight: 700; color: #a6e3a1;
-    margin-top: 6px; display: none; pointer-events: none;
-  }
-
-  .folder-actions {
-    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  }
-  .folder-queue-item {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 10px 12px;
-    border: 1px solid #313244; border-radius: 8px; background: #181825;
-  }
-  .folder-queue-copy {
-    min-width: 0; display: flex; flex-direction: column; gap: 2px;
-  }
-  .folder-queue-name {
-    font-size: 12px; color: #cdd6f4; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-  }
-  .folder-queue-meta {
-    font-size: 11px; color: #6c7086; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-  }
-  .folder-remove-btn {
-    padding: 6px 10px; font-size: 11px;
-  }
-
-  /* URL row */
-  .url-row {
-    display: flex; margin: 10px 20px 6px; gap: 8px; flex-shrink: 0;
-  }
-  .url-row input {
-    flex: 1; padding: 7px 10px; font-size: 13px;
-    background: #313244; color: #cdd6f4; border: 1px solid #585b70;
-    border-radius: 6px; outline: none; caret-color: #cdd6f4;
-  }
-  .url-row input:focus { border-color: #a6adc8; }
-  .url-row input::placeholder { color: #585b70; }
-  .btn {
-    padding: 7px 14px; font-size: 12px; font-weight: 700;
-    background: #45475a; color: #fff; border: none; border-radius: 6px;
-    cursor: pointer; white-space: nowrap;
-    transition: background 0.15s;
-  }
-  .btn:hover { background: #585b70; }
-
-  /* Options row */
-  .options-row {
-    display: flex; align-items: center; justify-content: space-between;
-    margin: 0 20px 0; flex-shrink: 0;
-  }
-  .options-actions {
-    display: flex; gap: 6px; align-items: center;
-  }
-  .options-row label {
-    font-size: 12px; color: #a6adc8; cursor: pointer;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .options-row input[type="checkbox"] {
-    accent-color: #a6e3a1; width: 15px; height: 15px;
-  }
-
-  .operations-shell {
-    margin: 10px 20px 12px;
-    flex: 1; min-height: 0;
-    background: #11111b; border: 1px solid #313244; border-radius: 10px;
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-  .operations-header {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    gap: 12px; padding: 10px 12px 8px;
-    border-bottom: 1px solid #313244; background: #181825;
-    flex-shrink: 0;
-  }
-  .operations-copy {
-    min-width: 0; display: flex; flex-direction: column; gap: 2px;
-  }
-  .operations-title {
-    font-size: 11px; color: #585b70; text-transform: uppercase; letter-spacing: 1px;
-  }
-  .operations-subtitle {
-    font-size: 11px; color: #6c7086;
-  }
-  .operations-header-actions {
-    display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
-  }
-  .operations-panel {
-    flex: 1; min-height: 0; position: relative; background: #11111b;
-  }
-  .panel-mode {
-    display: none; height: 100%; min-height: 0;
-  }
-  .panel-mode.active {
-    display: flex; flex: 1; min-height: 0; flex-direction: column;
-  }
-  #queue-panel {
-    padding: 12px; gap: 8px; overflow-y: auto;
-  }
-  #queue-panel::-webkit-scrollbar { width: 6px; }
-  #queue-panel::-webkit-scrollbar-track { background: transparent; }
-  #queue-panel::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
-  #folder-queue {
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .panel-empty {
-    min-height: 100%; display: flex; align-items: center; justify-content: center;
-    text-align: center; font-size: 12px; color: #6c7086; line-height: 1.5;
-    padding: 22px; border: 1px dashed #313244; border-radius: 8px; background: #181825;
-  }
-  .copy-btn {
-    background: transparent; border: 1px solid #585b70; color: #6c7086;
-    border-radius: 4px; padding: 3px 6px; cursor: pointer;
-    display: flex; align-items: center; gap: 4px; font-size: 10px;
-    transition: all 0.15s;
-  }
-  .copy-btn:hover { border-color: #a6adc8; color: #cdd6f4; }
-  .copy-btn.is-disabled {
-    opacity: 0.45; cursor: default; pointer-events: none;
-  }
-
-  /* Status log */
-  #log-container {
-    flex: 1; min-height: 0;
-    background: transparent; border: none; border-radius: 0;
-    overflow-y: auto; padding: 12px;
-    font-family: "Menlo", "SF Mono", monospace; font-size: 12px;
-    line-height: 1.5;
-  }
-  #log-container::-webkit-scrollbar { width: 6px; }
-  #log-container::-webkit-scrollbar-track { background: transparent; }
-  #log-container::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
-  .log-ok    { color: #a6e3a1; }
-  .log-error { color: #f38ba8; }
-  .log-info  { color: #a6adc8; }
-
-  .operations-footer {
-    border-top: 1px solid #313244; background: #181825;
-    padding: 8px 12px 10px; flex-shrink: 0;
-  }
-
-  /* Progress bar */
-  .progress-wrap {
-    margin: 0 0 8px; height: 6px; background: #313244;
-    border-radius: 3px; overflow: hidden;
-  }
-  .progress-bar {
-    height: 100%; width: 0%; background: #a6e3a1;
-    transition: width 0.25s ease;
-  }
-
-  .footer-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px;
-  }
-
-  /* Convert button row */
-  .convert-row {
-    display: flex; justify-content: flex-end; align-items: center; gap: 8px;
-    flex-shrink: 0;
-  }
-  .convert-btn {
-    padding: 9px 28px; font-size: 13px; font-weight: 700;
-    background: #a6e3a1; color: #1e1e2e; border: none; border-radius: 8px;
-    cursor: pointer; transition: background 0.15s;
-  }
-  .convert-btn:hover { background: #94d89a; }
-  .abort-btn {
-    background: #f38ba8; color: #1e1e2e;
-  }
-  .abort-btn:hover { background: #e07f9a; }
-
-  /* Summary */
-  .summary {
-    font-size: 12px; color: #6c7086; min-width: 0; flex: 1;
-  }
-
-  .modal-backdrop {
-    position: fixed; inset: 0; background: rgba(17, 17, 27, 0.76);
-    display: none; align-items: center; justify-content: center;
-    padding: 24px; z-index: 100;
-  }
-  .modal-backdrop.active {
-    display: flex;
-  }
-  .modal-card {
-    width: min(560px, 100%); background: #181825; border: 1px solid #313244;
-    border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-  .modal-header {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 14px 16px; border-bottom: 1px solid #313244;
-  }
-  .modal-title {
-    font-size: 17px; font-weight: 700; color: #fff;
-  }
-  .modal-close {
-    background: transparent; border: none; color: #a6adc8; font-size: 22px;
-    cursor: pointer; line-height: 1; padding: 0 2px;
-  }
-  .modal-close:hover {
-    color: #fff;
-  }
-  .modal-body {
-    display: flex; flex-direction: column; gap: 14px; padding: 16px;
-  }
-  .preferences-field {
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  .preferences-label {
-    font-size: 12px; font-weight: 600; color: #cdd6f4;
-  }
-  .preferences-help {
-    font-size: 11px; color: #6c7086; line-height: 1.4;
-  }
-  .preferences-select,
-  .preferences-checkbox-row,
-  .preferences-output-row {
-    display: flex; align-items: center; gap: 10px;
-  }
-  .preferences-select select {
-    width: 100%; padding: 8px 10px; font-size: 13px;
-    background: #313244; color: #cdd6f4; border: 1px solid #585b70;
-    border-radius: 8px;
-  }
-  .preferences-output-value {
-    flex: 1; min-height: 38px; padding: 8px 10px;
-    background: #11111b; color: #cdd6f4; border: 1px solid #313244;
-    border-radius: 8px; font-size: 12px; line-height: 1.4;
-    display: flex; align-items: center;
-  }
-  .preferences-checkbox-row label {
-    display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cdd6f4;
-  }
-  .preferences-checkbox-row input[type="checkbox"] {
-    accent-color: #a6e3a1; width: 16px; height: 16px;
-  }
-  .modal-footer {
-    display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px;
-    border-top: 1px solid #313244; background: #11111b;
-  }
-
-  body[data-theme="light"] {
-    background: #f5f7fb; color: #1f2937;
-  }
-  body[data-theme="light"] h1,
-  body[data-theme="light"] .modal-title {
-    color: #0f172a;
-  }
-  body[data-theme="light"] .subtitle,
-  body[data-theme="light"] .operations-title,
-  body[data-theme="light"] .operations-subtitle,
-  body[data-theme="light"] .folder-queue-meta,
-  body[data-theme="light"] .summary,
-  body[data-theme="light"] .preferences-help {
-    color: #64748b;
-  }
-  body[data-theme="light"] #drop-zone,
-  body[data-theme="light"] .operations-shell,
-  body[data-theme="light"] .folder-queue-item,
-  body[data-theme="light"] .panel-empty,
-  body[data-theme="light"] .modal-card,
-  body[data-theme="light"] .modal-footer,
-  body[data-theme="light"] .modal-header,
-  body[data-theme="light"] .operations-header,
-  body[data-theme="light"] .operations-footer,
-  body[data-theme="light"] .preferences-output-value,
-  body[data-theme="light"] #log-container {
-    background: #ffffff;
-    border-color: #d7deea;
-  }
-  body[data-theme="light"] .url-row input,
-  body[data-theme="light"] .preferences-select select {
-    background: #ffffff;
-    color: #0f172a;
-    border-color: #c7d2e0;
-  }
-  body[data-theme="light"] .btn {
-    background: #dbe2f0;
-    color: #0f172a;
-  }
-  body[data-theme="light"] .btn:hover {
-    background: #cbd5e1;
-  }
-  body[data-theme="light"] .convert-btn {
-    background: #8fd38c;
-  }
-  body[data-theme="light"] .abort-btn {
-    background: #f4a7b9;
-  }
-</style>
-</head>
-<body>
-
-<h1>Markdown Converter</h1>
-<div class="subtitle">PDF &nbsp;|&nbsp; DOCX &nbsp;|&nbsp; XLSX &nbsp;|&nbsp; HTML / URL &nbsp;|&nbsp; TXT &nbsp;|&nbsp; RTF</div>
-
-<div id="drop-zone">
-  <div class="main-text">Drop files here or click to browse</div>
-  <div class="sub-text">PDF, DOCX, XLSX, HTML, TXT, RTF</div>
-  <div class="badge" id="badge"></div>
-</div>
-
-<div class="url-row">
-  <input type="text" id="url-input" placeholder="Paste a URL or text to convert...">
-  <button class="btn" id="fetch-btn">Convert</button>
-</div>
-
-<div class="options-row">
-  <label><input type="checkbox" id="vault-cb" VAULT_CHECKED> Copy to Obsidian vault</label>
-  <div class="options-actions">
-    <button class="btn" id="preferences-btn">Preferences</button>
-    <button class="btn" id="open-btn">Open Output</button>
-    <button class="btn" id="vault-btn">Open Vault</button>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="preferences-modal">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="preferences-title">
-    <div class="modal-header">
-      <div class="modal-title" id="preferences-title">Preferences</div>
-      <button class="modal-close" id="preferences-close-btn" aria-label="Close preferences">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="preferences-field">
-        <div class="preferences-label">Theme</div>
-        <div class="preferences-select">
-          <select id="theme-select">
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="preferences-field">
-        <div class="preferences-label">Raw OCR display</div>
-        <div class="preferences-select">
-          <select id="raw-ocr-mode-select">
-            <option value="different">Show when different only</option>
-            <option value="always">Always show</option>
-            <option value="never">Never show</option>
-          </select>
-        </div>
-        <div class="preferences-help">Use this to hide duplicate Raw OCR blocks when the parsed quote already matches them.</div>
-      </div>
-
-      <div class="preferences-field">
-        <div class="preferences-label">Output directory</div>
-        <div class="preferences-output-row">
-          <div class="preferences-output-value" id="output-dir-value">Default output folder</div>
-          <button class="btn" id="output-dir-browse-btn">Browse</button>
-        </div>
-      </div>
-
-      <div class="preferences-field">
-        <div class="preferences-checkbox-row">
-          <label><input type="checkbox" id="auto-open-output-cb"> Open output automatically after successful export</label>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" id="output-dir-reset-btn">Use Default</button>
-      <button class="btn" id="preferences-save-btn">Save</button>
-    </div>
-  </div>
-</div>
-
-<div class="operations-shell">
-  <div class="operations-header">
-    <div class="operations-copy">
-      <div class="operations-title" id="operations-title">Staged folders</div>
-      <div class="operations-subtitle" id="operations-subtitle">Select replaces the queue. Add keeps existing staged folders.</div>
-    </div>
-    <div class="operations-header-actions">
-      <div class="folder-actions">
-        <button class="btn" id="folder-btn">Select Folder</button>
-        <button class="btn" id="add-folder-btn">Add Folder</button>
-        <button class="btn" id="clear-folders-btn">Clear</button>
-      </div>
-      <button class="copy-btn is-disabled" id="copy-btn" title="Copy log to clipboard" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  <div class="operations-panel">
-    <div class="panel-mode active" id="queue-panel">
-      <div class="panel-empty" id="queue-empty">Stage one or more quote-image folders here. Remove them inline before converting.</div>
-      <div id="folder-queue"></div>
-    </div>
-    <div class="panel-mode" id="log-panel">
-      <div id="log-container"></div>
-    </div>
-  </div>
-
-  <div class="operations-footer">
-    <div class="progress-wrap"><div class="progress-bar" id="progress"></div></div>
-    <div class="footer-row">
-      <div class="summary" id="summary">Ready</div>
-      <div class="convert-row" id="convert-row" style="display:none">
-        <button class="convert-btn" id="convert-btn">Convert</button>
-        <button class="btn abort-btn" id="abort-btn" style="display:none">Abort</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-  const dropZone  = document.getElementById('drop-zone');
-  const badge     = document.getElementById('badge');
-  const queuePanel = document.getElementById('queue-panel');
-  const logPanel  = document.getElementById('log-panel');
-  const queueEmpty = document.getElementById('queue-empty');
-  const logEl     = document.getElementById('log-container');
-  const progress  = document.getElementById('progress');
-  const summary   = document.getElementById('summary');
-  const folderQueue = document.getElementById('folder-queue');
-  const operationsTitle = document.getElementById('operations-title');
-  const operationsSubtitle = document.getElementById('operations-subtitle');
-  const urlInput  = document.getElementById('url-input');
-  const fetchBtn  = document.getElementById('fetch-btn');
-  const preferencesBtn = document.getElementById('preferences-btn');
-  const preferencesModal = document.getElementById('preferences-modal');
-  const preferencesCloseBtn = document.getElementById('preferences-close-btn');
-  const preferencesSaveBtn = document.getElementById('preferences-save-btn');
-  const themeSelect = document.getElementById('theme-select');
-  const rawOcrModeSelect = document.getElementById('raw-ocr-mode-select');
-  const outputDirValue = document.getElementById('output-dir-value');
-  const outputDirBrowseBtn = document.getElementById('output-dir-browse-btn');
-  const outputDirResetBtn = document.getElementById('output-dir-reset-btn');
-  const autoOpenOutputCb = document.getElementById('auto-open-output-cb');
-  const folderBtn = document.getElementById('folder-btn');
-  const addFolderBtn = document.getElementById('add-folder-btn');
-  const clearFoldersBtn = document.getElementById('clear-folders-btn');
-  const convertBtn = document.getElementById('convert-btn');
-  const abortBtn = document.getElementById('abort-btn');
-  const convertRow = document.getElementById('convert-row');
-  const copyBtn = document.getElementById('copy-btn');
-  const openBtn   = document.getElementById('open-btn');
-  const vaultCb   = document.getElementById('vault-cb');
-  const vaultBtn  = document.getElementById('vault-btn');
-
-  /* ---- Drag-and-drop ---- */
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.add('drag-over');
-  });
-  dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('drag-over');
-  });
-  document.addEventListener('dragover', (e) => e.preventDefault());
-  document.addEventListener('drop', (e) => e.preventDefault());
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.remove('drag-over');
-    /* Native drop handler (PyObjC) intercepts file paths at the Cocoa level.
-       JS only needs to prevent the default browser behaviour here. */
-  });
-
-  /* ---- Click to browse ---- */
-  dropZone.addEventListener('click', () => {
-    pywebview.api.browse_files();
-  });
-
-  folderBtn.addEventListener('click', () => {
-    pywebview.api.browse_folder();
-  });
-  addFolderBtn.addEventListener('click', () => {
-    pywebview.api.add_folder();
-  });
-  clearFoldersBtn.addEventListener('click', () => {
-    pywebview.api.clear_staged_folders();
-  });
-  preferencesBtn.addEventListener('click', () => {
-    preferencesModal.classList.add('active');
-  });
-  preferencesCloseBtn.addEventListener('click', () => {
-    preferencesModal.classList.remove('active');
-  });
-  preferencesModal.addEventListener('click', (event) => {
-    if (event.target === preferencesModal) {
-      preferencesModal.classList.remove('active');
-    }
-  });
-  outputDirBrowseBtn.addEventListener('click', async () => {
-    const selected = await pywebview.api.browse_output_directory();
-    if (selected) {
-      outputDirValue.textContent = selected;
-    }
-  });
-  outputDirResetBtn.addEventListener('click', () => {
-    outputDirValue.textContent = 'Default output folder';
-  });
-  preferencesSaveBtn.addEventListener('click', async () => {
-    const payload = {
-      theme: themeSelect.value,
-      raw_ocr_mode: rawOcrModeSelect.value,
-      output_dir: outputDirValue.textContent === 'Default output folder' ? null : outputDirValue.textContent,
-      auto_open_output: autoOpenOutputCb.checked,
-    };
-    const prefs = await pywebview.api.save_preferences(payload);
-    applyPreferences(prefs);
-    preferencesModal.classList.remove('active');
-  });
-
-  /* ---- Fetch URL ---- */
-  fetchBtn.addEventListener('click', () => {
-    const url = urlInput.value.trim();
-    if (url) {
-      urlInput.value = '';
-      pywebview.api.fetch_url(url);
-    }
-  });
-  urlInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') fetchBtn.click();
-  });
-
-  /* ---- Open Output ---- */
-  openBtn.addEventListener('click', () => {
-    pywebview.api.open_output();
-  });
-
-  /* ---- Open Vault ---- */
-  vaultBtn.addEventListener('click', () => {
-    pywebview.api.open_vault();
-  });
-
-  /* ---- Convert staged files ---- */
-  convertBtn.addEventListener('click', () => {
-    pywebview.api.convert_staged();
-  });
-  abortBtn.addEventListener('click', () => {
-    pywebview.api.cancel_current_job();
-  });
-
-  /* ---- Keyboard shortcuts ---- */
-  document.addEventListener('keydown', (e) => {
-    if (e.metaKey && e.key === 'o') { e.preventDefault(); pywebview.api.browse_files(); }
-    if (e.metaKey && e.key === 'w') { e.preventDefault(); pywebview.api.close_window(); }
-  });
-
-  /* ---- Helper: called from Python ---- */
-  function appendLog(text, cls) {
-    const div = document.createElement('div');
-    div.className = cls || 'log-info';
-    div.textContent = text;
-    logEl.appendChild(div);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-  function setProgress(pct) {
-    progress.style.width = pct + '%';
-  }
-  function setSummary(text) {
-    summary.textContent = text;
-  }
-  function setBadge(text) {
-    if (text) {
-      badge.textContent = text;
-      badge.style.display = 'block';
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-  function getVaultChecked() {
-    return vaultCb.checked;
-  }
-  function resolveTheme(theme) {
-    if (theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    }
-    return theme;
-  }
-  function applyPreferences(prefs) {
-    const theme = resolveTheme(prefs.theme || 'system');
-    document.body.dataset.theme = theme;
-    themeSelect.value = prefs.theme || 'system';
-    rawOcrModeSelect.value = prefs.raw_ocr_mode || 'different';
-    outputDirValue.textContent = prefs.output_dir || 'Default output folder';
-    autoOpenOutputCb.checked = Boolean(prefs.auto_open_output);
-  }
-  function updatePanelMode(mode) {
-    const isQueue = mode === 'queue';
-    queuePanel.classList.toggle('active', isQueue);
-    logPanel.classList.toggle('active', !isQueue);
-    operationsTitle.textContent = isQueue ? 'Staged folders' : 'Conversion log';
-    operationsSubtitle.textContent = isQueue
-      ? 'Select replaces the queue. Add keeps existing staged folders.'
-      : 'Live progress and output from the current conversion job.';
-    copyBtn.disabled = isQueue;
-    copyBtn.classList.toggle('is-disabled', isQueue);
-    if (!isQueue) {
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-  }
-  function showLogPanel() {
-    updatePanelMode('log');
-  }
-  function showConvertButton() {
-    convertRow.style.display = 'flex';
-    convertBtn.style.display = 'inline-flex';
-  }
-  function hideConvertButton() {
-    convertBtn.style.display = 'none';
-    if (abortBtn.style.display === 'none') {
-      convertRow.style.display = 'none';
-    }
-  }
-  function showAbortButton() {
-    convertRow.style.display = 'flex';
-    abortBtn.style.display = 'inline-flex';
-  }
-  function hideAbortButton() {
-    abortBtn.style.display = 'none';
-    if (convertBtn.style.display === 'none') {
-      convertRow.style.display = 'none';
-    }
-  }
-  function renderFolderQueue(items, state = {}) {
-    updatePanelMode('queue');
-    folderQueue.innerHTML = '';
-    const fileCount = state.file_count || 0;
-    clearFoldersBtn.disabled = items.length === 0;
-    clearFoldersBtn.style.opacity = items.length === 0 ? '0.6' : '1';
-    for (const item of items) {
-      const row = document.createElement('div');
-      row.className = 'folder-queue-item';
-
-      const copy = document.createElement('div');
-      copy.className = 'folder-queue-copy';
-
-      const name = document.createElement('div');
-      name.className = 'folder-queue-name';
-      name.textContent = item.name;
-
-      const meta = document.createElement('div');
-      meta.className = 'folder-queue-meta';
-      const imageLabel = item.image_count === 1 ? 'image' : 'images';
-      meta.textContent = `${item.image_count} ${imageLabel} • ${item.path}`;
-
-      copy.appendChild(name);
-      copy.appendChild(meta);
-
-      const remove = document.createElement('button');
-      remove.className = 'btn folder-remove-btn';
-      remove.textContent = 'Remove';
-      remove.addEventListener('click', () => {
-        pywebview.api.remove_staged_folder(item.id);
-      });
-
-      row.appendChild(copy);
-      row.appendChild(remove);
-      folderQueue.appendChild(row);
-    }
-    if (items.length > 0) {
-      queueEmpty.style.display = 'none';
-    } else {
-      queueEmpty.style.display = 'flex';
-      if (fileCount > 0) {
-        const fileLabel = fileCount === 1 ? 'file' : 'files';
-        queueEmpty.textContent = `${fileCount} ${fileLabel} staged from the drop zone. Convert when ready, or stage quote folders here.`;
-      } else {
-        queueEmpty.textContent = 'Stage one or more quote-image folders here. Remove them inline before converting.';
-      }
-    }
-  }
-
-  /* ---- Copy log to clipboard (via Python API — navigator.clipboard needs HTTPS) ---- */
-  copyBtn.addEventListener('click', () => {
-    const text = logEl.innerText;
-    pywebview.api.copy_to_clipboard(text);
-    const origHTML = copyBtn.innerHTML;
-    copyBtn.innerHTML = '<span style="color:#a6e3a1">&#10003; Copied</span>';
-    copyBtn.style.borderColor = '#a6e3a1';
-    setTimeout(() => { copyBtn.innerHTML = origHTML; copyBtn.style.borderColor = ''; }, 1500);
-  });
-  window.addEventListener('pywebviewready', async () => {
-    const prefs = await pywebview.api.get_preferences();
-    applyPreferences(prefs);
-  });
-</script>
-</body>
-</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -939,6 +222,8 @@ class Api:
             for folder in self._staged_folders
         ]
         state = {
+            "total_count": len(self._collect_staged_paths()),
+            "files": [{"path": p, "name": Path(p).name} for p in dict.fromkeys(self._staged)],
             "file_count": len(self._staged),
             "folder_count": len(self._staged_folders),
             "image_count": self._unique_staged_folder_image_count(),
@@ -1042,6 +327,63 @@ class Api:
 
     # -- public API exposed to JS --
 
+    def get_application_state(self):
+        return {"version": VERSION, "output_dir": str(self._effective_output_dir()),
+                "vault_configured": bool(VAULT_DIR), "recovery_jobs": self.get_recovery_jobs()}
+
+    def get_recovery_jobs(self):
+        jobs = []
+        for checkpoint in recovery_checkpoints(self._effective_output_dir() / "quotes"):
+            items = checkpoint.items
+            jobs.append({"id": checkpoint.report_path.name,
+                         "name": Path(items[0]["path"]).parent.name if items else checkpoint.path.stem,
+                         "total": len(items), "saved": sum(item["status"] == "success" for item in items),
+                         "failed": sum(item["status"] == "failed" for item in items),
+                         "vault_pending": bool(checkpoint.report.get("vault_pending")),
+                         "needs_finish": not any(item["status"] in ("pending", "failed") for item in items),
+                         "pending": sum(item["status"] == "pending" for item in items)})
+        return jobs
+
+    def recover_job(self, job_id, retry_failed=False):
+        if not isinstance(job_id, str) or job_id not in {job["id"] for job in self.get_recovery_jobs()}:
+            self._log("This saved batch is no longer available.", "log-error")
+            return False
+        report_path = self._effective_output_dir() / "quotes" / job_id
+        return self._start_job(self._recovery_worker, report_path, bool(retry_failed))
+
+    def _recovery_worker(self, report_path, retry_failed):
+        self._run_worker(self._recovery_worker_body, report_path, retry_failed)
+
+    def _recovery_worker_body(self, report_path, retry_failed):
+        checkpoint = QuoteCheckpoint.load(report_path)
+        self._show_log_panel()
+        self._show_abort_button()
+        self._log("Retrying failed images" if retry_failed else "Resuming saved batch", "log-info")
+        result = convert_image_folder_quotes(
+            [item["path"] for item in checkpoint.items], report_path.parent,
+            VAULT_DIR if self._vault_checked() else None,
+            hooks=QuoteBatchHooks(
+                should_cancel=self._cancel_event.is_set,
+                on_image_started=lambda n, total, name: self._set_summary(f"Processing {n} / {total}: {name}"),
+                on_image_processed=lambda n, total, name: self._set_progress(100 * n / total if total else 100),
+                on_status=lambda text: self._log(text, "log-info")),
+            checkpoint_path=report_path, retry_failed=retry_failed)
+        self._log(result.message, "log-ok" if result.success else "log-error")
+        self._set_summary(result.message)
+        if result.output_path:
+            self._maybe_auto_open_output([Path(result.output_path)])
+
+    def clear_queue(self):
+        if self._job_running:
+            return
+        self._staged.clear()
+        self._staged_folders.clear()
+        self._refresh_stage_ui()
+
+    def remove_staged_file(self, path):
+        self._staged = [item for item in self._staged if item != path]
+        self._refresh_stage_ui()
+
     def get_preferences(self):
         return self._preferences_payload()
 
@@ -1067,7 +409,7 @@ class Api:
 
     def convert_files(self, paths):
         """Called from JS drop or browse."""
-        self._start_job(self._worker, list(paths))
+        return self._start_job(self._worker, list(paths))
 
     def _start_job(self, target, *args, before_start=None):
         if not self._job_lock.acquire(blocking=False):
@@ -1099,6 +441,7 @@ class Api:
 
     def _run_worker(self, target, *args):
         self._job_running = True
+        self._js("setBusy(true)")
         try:
             target(*args)
         except Exception as exc:
@@ -1107,6 +450,11 @@ class Api:
         finally:
             self._job_running = False
             self._hide_abort_button()
+            self._js("setBusy(false)")
+            try:
+                self._js(f"renderRecoveryJobs({json.dumps(self.get_recovery_jobs())})")
+            except OSError as exc:
+                self._log(f"Could not refresh saved batches: {exc}", "log-error")
 
     def browse_files(self):
         """Open native file dialog and stage selected files."""
@@ -1129,7 +477,8 @@ class Api:
     def _browse_folder_dialog(self, replace: bool):
         if not self.window:
             return
-        directory = str(DEFAULT_QUOTE_FOLDER if DEFAULT_QUOTE_FOLDER.exists() else APP_DIR)
+        directory = str(self._staged_folders[-1].path if self._staged_folders else
+                        DEFAULT_QUOTE_FOLDER if DEFAULT_QUOTE_FOLDER.exists() else Path.home())
         result = self.window.create_file_dialog(
             webview.FOLDER_DIALOG,
             allow_multiple=False,
@@ -1141,19 +490,29 @@ class Api:
 
     def fetch_url(self, url):
         """Convert a URL or pasted text to markdown."""
-        if not url:
-            return
+        if not url or not url.strip():
+            return False
         text = url.strip()
-        self._start_job(self._paste_worker, text)
+        return self._start_job(self._paste_worker, text)
 
     def stage_files(self, paths):
         """Stage files for conversion without converting immediately."""
-        self._staged.extend(paths)
-        for p in paths:
-            self._log(f"Staged: {Path(p).name}", "log-info")
+        if self._job_running:
+            return
+        for path in paths:
+            if Path(path).is_dir():
+                self.stage_quote_folder(Path(path), replace=False)
+            elif Path(path).suffix.lower() in SUPPORTED:
+                if path not in self._staged:
+                    self._staged.append(path)
+                    self._log(f"Staged: {Path(path).name}", "log-info")
+            else:
+                self._log(f"Unsupported file: {Path(path).name}", "log-error")
         self._refresh_stage_ui()
 
     def stage_quote_folder(self, folder: Path, replace: bool = True):
+        if self._job_running:
+            return
         images = tuple(discover_quote_images(folder))
         if not images:
             self._log(f"No supported quote images found in {folder.name}", "log-error")
@@ -1198,20 +557,20 @@ class Api:
         """Convert all staged files."""
         paths = self._collect_staged_paths()
         if not paths:
-            return
+            return False
         if self._job_running:
             self._log("A conversion is already running", "log-error")
-            return
+            return False
         def clear_queue():
             self._staged.clear()
             self._staged_folders = []
             self._refresh_stage_ui()
-        self._start_job(self._worker, paths, before_start=clear_queue)
+        return self._start_job(self._worker, paths, before_start=clear_queue)
 
     def cancel_current_job(self):
         self._cancel_event.set()
-        self._log("Abort requested", "log-info")
-        self._set_summary("Abort requested…")
+        self._log("Stopping after saving completed work…", "log-info")
+        self._set_summary("Stopping · completed images are saved")
 
     def open_output(self):
         output_dir = self._effective_output_dir()
@@ -1370,7 +729,8 @@ class Api:
             summary_text = f"Canceled: {processed}/{total} processed | {total_words:,} total words"
             summary_tag = "log-info"
         elif job_failed:
-            summary_text = f"Failed: {processed}/{total} processed | {total_words:,} total words"
+            label = "Saved with issues" if total_words else "Failed"
+            summary_text = f"{label}: {processed}/{total} processed | {total_words:,} total words"
             summary_tag = "log-error"
         else:
             summary_text = f"Done: {processed}/{total} processed | {total_words:,} total words"
@@ -1405,10 +765,11 @@ def main():
         f"MD Converter {VERSION}",
         html=html,
         js_api=api,
-        width=660,
-        height=580,
+        width=820,
+        height=780,
+        min_size=(640, 640),
         resizable=True,
-        background_color="#1e1e2e",
+        background_color="#181b1b",
     )
     api.window = window
     window.events.closing += lambda: api._cancel_event.set()

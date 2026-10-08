@@ -14,7 +14,7 @@ fi
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPTS_DIR="$PROJECT_DIR/scripts"
 SRC_DIR="$PROJECT_DIR/src"
-VENV="$PROJECT_DIR/.venv"
+VENV="${MD_CONVERTER_VENV:-$PROJECT_DIR/.venv}"
 PYTHON="$VENV/bin/python3"
 PYINSTALLER="$VENV/bin/pyinstaller"
 export PYINSTALLER_CONFIG_DIR="$PROJECT_DIR/.build-cache"

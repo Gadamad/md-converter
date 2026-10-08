@@ -27,7 +27,7 @@ class BatchRecoveryTests(unittest.TestCase):
             self.assertIn('First quote.', Path(result.output_path).read_text())
             report = json.loads(next(output.glob('*.progress.json')).read_text())
             self.assertEqual(report['processed'], 2)
-            self.assertEqual(report['failed'][0]['image'], 'b.jpg')
+            self.assertEqual(Path(report['failed'][0]['image']).name, 'b.jpg')
             self.assertEqual(report['status'], 'completed_with_errors')
 
     def test_bad_image_does_not_prevent_later_images(self):

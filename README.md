@@ -7,9 +7,9 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.1.0 adds supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.2.0 adds resumable image batches, failed-only retry, streaming spreadsheets, and a redesigned native Mac interface. It retains supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
 
-Everything runs locally on your machine. No API calls, no cloud upload, no hidden service dependency.
+File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
 ## Why People Find It Useful
 
@@ -22,6 +22,7 @@ Everything runs locally on your machine. No API calls, no cloud upload, no hidde
 
 | Input | What happens |
 | --- | --- |
+| JPG / PNG / WebP | Extracts quotes with local OCR; saves and resumes large image batches |
 | PDF | Extracts selectable text, or falls back to OCR for scanned PDFs |
 | DOCX | Preserves headings, bold, italics, lists, quotes, and tables |
 | XLSX | Converts each workbook sheet into a separate Markdown table file |
@@ -47,7 +48,7 @@ What `install.sh` does:
 3. Installs Python dependencies.
 4. Installs `pyinstaller`.
 5. Checks whether `tesseract` is available for scanned PDFs.
-6. Builds `MD Converter.app` and copies it to `/Applications`.
+6. Builds and verifies `MD Converter.app`, backs up an existing installation to `release-backups/`, and installs to `/Applications`. Close the running app before installing.
 
 After that, open `MD Converter` from Launchpad, Spotlight, or Finder.
 
@@ -103,41 +104,23 @@ That means reinstalling the app no longer removes previous converted files.
 
 ## GUI Walkthrough
 
-The app is designed for non-technical use:
+1. Use **Files & folders** to drop files, add files, or add an image folder. Folder scanning includes subfolders.
+2. Review filenames and image counts in **Queue**. Remove individual entries or clear the whole queue.
+3. For pasted content, select **Text or URL** and enter your text or website address.
+4. Click **Convert to Markdown**. **Activity** shows the current file, completed count and any failures.
+5. Use **Stop & save** to interrupt image OCR while retaining completed work.
+6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
 
-1. Drop files onto the window, or click to browse.
-2. Use `Select Folder` to stage one quote-image folder and replace any previously staged quote folders.
-3. Use `Add Folder` to append another quote-image folder to the current queue.
-4. Remove one staged quote folder or clear the folder queue directly inside the main operational panel.
-5. Paste a URL to convert a web page.
-6. Paste plain text to save it as Markdown.
-7. Click `Convert`.
-8. Watch per-image progress in the progress bar and summary line while larger quote batches run.
-9. Use `Abort` to stop the active OCR worker and keep completed image exports.
-10. Use `Open Output` to jump straight to the generated files.
-11. Use `Preferences` for app-wide defaults like theme, Raw OCR visibility, output folder, and auto-open behavior.
+### Image recovery
 
-If an Obsidian vault is configured, you can also send copies there automatically.
-
-### Quote Image Operational Panel
-
-The quote-image workflow uses one larger operational panel instead of separate staging and log sections:
-
-- Before conversion, that panel shows the staged quote folders with inline remove controls.
-- `Select Folder` replaces the current quote-folder queue by default.
-- `Add Folder` lets you intentionally combine another quote-image folder into the same batch.
-- Each staged folder shows its folder name, full path, and image count.
-- You can remove one staged folder at a time or clear the whole folder queue.
-- During conversion, the same panel switches into live progress/log mode.
-- Progress updates per image, so a batch with hundreds of screenshots shows where it is.
-- `Abort` interrupts the active image OCR worker; completed images are already saved.
-- Each OCR backend has a 30-second deadline. A Vision timeout switches the remaining batch to Tesseract.
-- Unreadable images are listed in the export and progress report while the remaining images continue.
-- The current Markdown export and adjacent `.progress.json` file are updated atomically after every image. A `running` report left after a crash indicates an interrupted batch; automatic resume is not yet implemented.
-- Quote exports are merged into one Markdown file per batch.
-- Quote export filenames are versioned automatically, for example:
-  - `stoicism-app_quotes_355-images_20260627_174500.md`
-  - `stoicism-app_quotes_355-images_20260627_174500_2.md`
+- Image results are saved after each file to Markdown and a neighboring `.progress.json` journal.
+- If the app closes unexpectedly, **Resume** continues pending images. Submitting the same interrupted collection again resumes it automatically.
+- **Retry failed** processes only unsuccessful images, preserving successful results and their order.
+- **Finish export** repairs interrupted Markdown or vault delivery without repeating completed OCR.
+- Missing original files do not erase text already saved. Changed images are reconverted; if replacement extraction fails, their previous text is retained in a clearly labeled section.
+- Each OCR engine has a 30-second deadline. A Vision timeout switches the remainder of that batch to Tesseract. Unreadable images are reported and the batch continues.
+- An operating-system lock protects journals from concurrent app instances. Resume updates the same Markdown and vault export.
+- Recovery works for version 0.2.0 journals. Earlier versions did not retain the records needed for automatic resume. New independent batches receive unique output filenames.
 
 ### Preferences
 
@@ -159,7 +142,7 @@ Preferences are stored persistently for the installed app at:
 ~/Library/Application Support/MD Converter/preferences.json
 ```
 
-This version does **not** add a History panel or sidebar. The main screen remains dedicated to conversion.
+Incomplete batches appear in the workspace for recovery. Completed batches remain in the output folder.
 
 ## Optional Obsidian Vault Delivery
 
@@ -339,3 +322,17 @@ MIT. See `LICENSE`.
 - `constraints-macos-py314.txt` records the environment used for this release. To reproduce it in a compatible macOS ARM64 / Python 3.14 environment, install with `pip install -r requirements.txt -c constraints-macos-py314.txt`, and install the pinned PyInstaller version from that file for builds.
 
 See [the code review and update recommendations](documentation/code-review-2026-10-08.md) for measured performance, remaining limitations, and recommended dependency updates.
+
+## Verified release build
+
+The tested macOS ARM64 / Python 3.14 dependency set is pinned in `constraints-macos-py314.txt`. To reproduce it in a separate environment:
+
+```bash
+python3 -m venv .venv-release
+.venv-release/bin/python -m pip install -r requirements.txt pytest pyinstaller -c constraints-macos-py314.txt
+.venv-release/bin/python -m pytest -q
+MD_CONVERTER_VENV="$PWD/.venv-release" bash scripts/build_app.sh
+.venv-release/bin/python scripts/install_app.py
+```
+
+The installer keeps the prior app in `release-backups/` and restores it if replacement fails. Use `--close-running` only when ready to discard unsaved work in a running older version. Build metadata records the version, source digest and Git revision.

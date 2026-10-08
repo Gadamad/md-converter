@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from itertools import chain
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
@@ -45,7 +46,7 @@ def _find_ca_file() -> str:
 _CA_FILE = _find_ca_file()
 os.environ["SSL_CERT_FILE"] = _CA_FILE
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 import requests
 from bs4 import BeautifulSoup
 from docx import Document
@@ -53,11 +54,11 @@ from docx.table import Table as DocxTable
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 from image_ocr import OcrCancelled, OcrSession, ocr_image, _run_backend
-from file_utils import atomic_write_text, reserve_output_path
+from file_utils import atomic_write_text, atomic_write_chunks, reserve_output_path
 from markdownify import markdownify as html_to_md
 from quote_markdown import render_quote_batch_markdown
 from quote_parser import extract_quote_records
-from quote_checkpoint import QuoteCheckpoint
+from quote_checkpoint import QuoteCheckpoint, fingerprint, matching_checkpoint, canonical_paths, batch_lock
 from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
@@ -227,7 +228,7 @@ def vault_frontmatter(title: str, source_type: str, source_file: str) -> str:
 
 
 def write_output(
-    body: str,
+    body: str | Iterable[str],
     title: str,
     source_file: str,
     word_count: int,
@@ -242,16 +243,17 @@ def write_output(
     md_name = md_path.name
 
     header = build_header(title, source_file, word_count, **(header_extras or {}))
-    content = header + body + "\n"
-    atomic_write_text(md_path, content)
+    chunks = (body,) if isinstance(body, str) else body
+    atomic_write_chunks(md_path, chain((header,), chunks, ("\n",)))
 
     # Vault delivery
     if vault_dir:
         vault_type_dir = vault_dir / source_type
         vault_type_dir.mkdir(parents=True, exist_ok=True)
         vault_path = reserve_output_path(vault_type_dir, md_path.stem)
-        vault_content = vault_frontmatter(title, source_type, source_file) + content
-        atomic_write_text(vault_path, vault_content)
+        with md_path.open(encoding="utf-8") as source:
+            chunks = iter(lambda: source.read(65536), "")
+            atomic_write_chunks(vault_path, chain((vault_frontmatter(title, source_type, source_file),), chunks))
 
     return ConvertResult(True, str(md_path), word_count, f"OK -> {md_name}")
 
@@ -312,15 +314,34 @@ def convert_image_folder_quotes(
     vault_dir: Path | None = None,
     hooks: QuoteBatchHooks | None = None,
     raw_ocr_mode: str = "different",
+    *, checkpoint_path: Path | None = None, retry_failed: bool = False,
+) -> ConvertResult:
+    with batch_lock(output_dir):
+        return _convert_image_batch(paths, output_dir, vault_dir, hooks, raw_ocr_mode,
+                                    checkpoint_path=checkpoint_path, retry_failed=retry_failed)
+
+
+def _convert_image_batch(
+    paths: list[str],
+    output_dir: Path,
+    vault_dir: Path | None = None,
+    hooks: QuoteBatchHooks | None = None,
+    raw_ocr_mode: str = "different",
+    *, checkpoint_path: Path | None = None, retry_failed: bool = False,
 ) -> ConvertResult:
     output_dir.mkdir(parents=True, exist_ok=True)
-    records = []
-    total = len(paths)
-    processed = 0
+    paths = list(dict.fromkeys(paths))
+    checkpoint = QuoteCheckpoint.load(Path(checkpoint_path)) if checkpoint_path else matching_checkpoint(output_dir, paths, raw_ocr_mode)
+    if checkpoint:
+        if canonical_paths(paths) != canonical_paths(item["path"] for item in checkpoint.items):
+            raise ValueError("The selected files do not match this saved batch")
+        if not retry_failed:
+            checkpoint.invalidate_changed_sources()
+    else:
+        checkpoint = QuoteCheckpoint(output_dir, quote_batch_stem(paths), paths, raw_ocr_mode)
+    total = len(checkpoint.items)
     canceled = False
     session = OcrSession()
-    checkpoint = QuoteCheckpoint(output_dir, quote_batch_stem(paths), total, raw_ocr_mode)
-    checkpoint.save(records, processed, "running")
     should_cancel = hooks.should_cancel if hooks else None
 
     def notice(message):
@@ -328,42 +349,70 @@ def convert_image_folder_quotes(
         if hooks and hooks.on_status:
             hooks.on_status(message)
 
-    for path in sorted(paths):
+    selected = [item for item in checkpoint.items if item["status"] == ("failed" if retry_failed else "pending")]
+    processed = sum(item["status"] != "pending" and item not in selected for item in checkpoint.items)
+    if processed and hooks and hooks.on_image_processed:
+        hooks.on_image_processed(processed, total, "Previously saved images")
+    checkpoint.save("running")
+    for item in selected:
         if should_cancel and should_cancel():
             canceled = True
             break
+        path = item["path"]
         name = Path(path).name
-        checkpoint.save(records, processed, "running", str(path))
+        checkpoint.save("running", path)
         if hooks and hooks.on_image_started:
             hooks.on_image_started(processed + 1, total, name)
+        source_fingerprint = fingerprint(path)
         try:
             ocr_result = ocr_image(Path(path), should_cancel=should_cancel,
                                    session=session, on_status=notice)
             new_records = extract_quote_records(ocr_result.text, source_image=name)
             if not new_records:
                 raise ValueError("No quotes found in image")
-            records.extend(new_records)
+            if fingerprint(path) != source_fingerprint:
+                raise ValueError("Source image changed during conversion; retry this image")
+            checkpoint.complete(item, new_records, source_fingerprint)
         except OcrCancelled:
             canceled = True
             break
         except Exception as exc:
-            checkpoint.report["failed"].append({"image": str(path), "error": str(exc)})
+            checkpoint.complete(item, [], source_fingerprint, error=exc)
             notice(f"Failed: {name}: {exc}")
         processed += 1
-        checkpoint.save(records, processed, "running")
+        checkpoint.save("running")
         if hooks and hooks.on_image_processed:
             hooks.on_image_processed(processed, total, name)
 
     failed = len(checkpoint.report["failed"])
+    pending = any(item["status"] == "pending" for item in checkpoint.items)
+    canceled = canceled or pending
     state = "canceled" if canceled else "completed_with_errors" if failed else "completed"
-    checkpoint.save(records, processed, state)
+    records = checkpoint.records
+    if vault_dir and records and not checkpoint.report.get("vault_pending"):
+        checkpoint.report["vault_pending"] = str(vault_dir.resolve())
+    checkpoint.save(state)
     output_path = checkpoint.path
     total_words = sum(len(record.quote.split()) for record in records)
 
+    if checkpoint.report.get("vault_pending"):
+        vault_dir = Path(checkpoint.report["vault_pending"])
     if vault_dir and records:
+        checkpoint.report["vault_pending"] = str(vault_dir.resolve())
         vault_quotes_dir = vault_dir / "quotes"
-        vault_path = reserve_output_path(vault_quotes_dir, output_path.stem)
+        vault_key = str(vault_quotes_dir.resolve())
+        exports = checkpoint.report.setdefault("vault_exports", {})
+        saved_name = exports.get(vault_key)
+        if isinstance(saved_name, str) and Path(saved_name).name == saved_name and saved_name.endswith(".md"):
+            vault_path = vault_quotes_dir / saved_name
+            vault_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            vault_path = reserve_output_path(vault_quotes_dir, output_path.stem)
+            exports[vault_key] = vault_path.name
+        checkpoint.save(state)
         atomic_write_text(vault_path, output_path.read_text(encoding="utf-8"))
+        checkpoint.report["vault_pending"] = None
+        checkpoint.save(state)
 
     if canceled:
         message = f"CANCELED -> {output_path.name} ({processed}/{total} images)" if records else f"CANCELED ({processed}/{total} images processed)"

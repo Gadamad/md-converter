@@ -1,5 +1,7 @@
 # Virtual environment
 .venv/
+.venv-release/
+release-backups/
 
 # Python
 __pycache__/

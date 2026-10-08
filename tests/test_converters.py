@@ -9,6 +9,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR / "src"))
 
 import converters
+from quote_parser import QuoteRecord
 
 
 class FakeResponse:
@@ -214,13 +215,13 @@ class ImageRoutingTests(unittest.TestCase):
             second_image.write_bytes(b"img")
             output_dir = temp_path / "out"
 
-            record_one = mock.Mock(
+            record_one = QuoteRecord(
                 quote="First quote.",
                 author="Seneca",
                 source_image=first_image.name,
                 raw_ocr="First quote.\n— Seneca",
             )
-            record_two = mock.Mock(
+            record_two = QuoteRecord(
                 quote="Second quote.",
                 author="",
                 source_image=second_image.name,
@@ -249,7 +250,7 @@ class ImageRoutingTests(unittest.TestCase):
             image_path.write_bytes(b"img")
             output_dir = temp_path / "out"
 
-            record = mock.Mock(
+            record = QuoteRecord(
                 quote="First quote.",
                 author="Seneca",
                 source_image=image_path.name,
@@ -284,7 +285,7 @@ class ImageRoutingTests(unittest.TestCase):
             second_image.write_bytes(b"img")
             output_dir = temp_path / "out"
 
-            record = mock.Mock(
+            record = QuoteRecord(
                 quote="First quote.",
                 author="Seneca",
                 source_image=first_image.name,
@@ -316,7 +317,7 @@ class ImageRoutingTests(unittest.TestCase):
             image_path.write_bytes(b"img")
             output_dir = temp_path / "out"
 
-            record = mock.Mock(
+            record = QuoteRecord(
                 quote="First quote.",
                 author="Seneca",
                 source_image=image_path.name,
