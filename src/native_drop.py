@@ -1,7 +1,7 @@
 """
 Native macOS drag-and-drop handler for pywebview.
-Swizzles WebKitHost's performDragOperation: so file drops
-get routed to Python with real file paths.
+Swizzles WebKitHost's performDragOperation: so files and browser links
+get routed to the saved queue instead of navigating the webview.
 """
 
 import ctypes
@@ -12,9 +12,10 @@ import time
 import objc
 from AppKit import (
     NSApplication,
-    NSDragOperationCopy,
     NSFilenamesPboardType,
     NSPasteboardTypeFileURL,
+    NSPasteboardTypeString,
+    NSPasteboardTypeURL,
 )
 from Foundation import NSURL
 
@@ -38,6 +39,7 @@ _libobjc.object_getClass.restype = ctypes.c_void_p
 
 # Shared state
 _drop_callback = None
+_link_callback = None
 _orig_perform_imp = None
 
 
@@ -58,13 +60,47 @@ def _extract_paths(pboard):
     return paths
 
 
-def setup_native_drop(webview_window, callback, delay=2.0):
+def _extract_links(pboard):
+    """Prefer browser URL data to display-title text on the same pasteboard."""
+    items = pboard.pasteboardItems() or []
+    urls = [str(value) for item in items if (value := item.stringForType_(NSPasteboardTypeURL))]
+    if not urls:
+        value = pboard.stringForType_(NSPasteboardTypeURL)
+        if value:
+            urls = [str(value)]
+    if urls:
+        return {"urls": list(dict.fromkeys(urls))}
+    texts = [str(value) for item in items if (value := item.stringForType_(NSPasteboardTypeString))]
+    if not texts:
+        value = pboard.stringForType_(NSPasteboardTypeString)
+        if value:
+            texts = [str(value)]
+    text = "\n".join(texts)
+    return {"text": text} if text.strip() else None
+
+
+def _dispatch_drop(pboard, file_callback, link_callback):
+    """Consume recognized drops before WebKit gets a chance to navigate."""
+    paths = _extract_paths(pboard)
+    if paths and file_callback:
+        threading.Thread(target=file_callback, args=(paths,), daemon=True).start()
+        return True
+    payload = _extract_links(pboard) if link_callback else None
+    if payload:
+        threading.Thread(target=link_callback, args=(payload,), daemon=True).start()
+        return True
+    return False
+
+
+def setup_native_drop(webview_window, callback, delay=2.0, link_callback=None):
     """
     Swizzle WebKitHost's performDragOperation: using ctypes
-    to get real file paths from Finder drops.
+    to get real file paths from Finder and website URLs from browser drops.
+    The optional link callback accepts {"urls": [...]} or {"text": "..."}.
     """
-    global _drop_callback, _orig_perform_imp
+    global _drop_callback, _link_callback, _orig_perform_imp
     _drop_callback = callback
+    _link_callback = link_callback
 
     time.sleep(delay)
 
@@ -81,6 +117,13 @@ def setup_native_drop(webview_window, callback, delay=2.0):
         if target_view is None:
             print("[native_drop] WebKitHost not found")
             return False
+
+        if link_callback:
+            registered = list(target_view.registeredDraggedTypes() or [])
+            types = list(dict.fromkeys(registered + [NSFilenamesPboardType, NSPasteboardTypeFileURL,
+                                                   NSPasteboardTypeURL, NSPasteboardTypeString]))
+            target_view.performSelectorOnMainThread_withObject_waitUntilDone_(
+                "registerForDraggedTypes:", types, False)
 
         # Get the raw ObjC class pointer via ctypes
         view_ptr = objc.pyobjc_id(target_view)
@@ -111,12 +154,7 @@ def setup_native_drop(webview_window, callback, delay=2.0):
                 # Convert sender pointer back to Python ObjC object
                 sender = objc.objc_object(c_void_p=sender_ptr)
                 pboard = sender.draggingPasteboard()
-                paths = _extract_paths(pboard)
-
-                if paths and _drop_callback:
-                    threading.Thread(
-                        target=_drop_callback, args=(paths,), daemon=True
-                    ).start()
+                if _dispatch_drop(pboard, _drop_callback, _link_callback):
                     return True
             except Exception as e:
                 print(f"[native_drop] drop handler error: {e}")

@@ -24,6 +24,7 @@ from converters import SUPPORTED, ConvertResult, route, convert_pasted, convert_
 from preferences import Preferences, default_preferences_path
 from quote_checkpoint import QuoteCheckpoint, recovery_checkpoints
 from app_version import VERSION
+from queue_api import SavedQueueApi
 
 try:
     from native_drop import setup_native_drop
@@ -65,7 +66,8 @@ VAULT_DIR = (
 )
 
 FILETYPES = (
-    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf;*.png;*.jpg;*.jpeg;*.webp)",
+    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf;*.png;*.jpg;*.jpeg;*.webp;*.webloc)",
+    "Website shortcuts (*.webloc)",
     "Quote images (*.png;*.jpg;*.jpeg;*.webp)",
     "PDF files (*.pdf)",
     "Word files (*.docx)",
@@ -156,7 +158,7 @@ from app_ui import HTML
 # pywebview API class
 # ---------------------------------------------------------------------------
 
-class Api:
+class Api(SavedQueueApi):
     """Exposed to JavaScript via pywebview.api."""
 
     def __init__(self):
@@ -169,6 +171,9 @@ class Api:
         self._job_lock = threading.Lock()
         self._preferences_path = default_preferences_path()
         self._preferences = Preferences.load(self._preferences_path)
+        self._supported = SUPPORTED
+        self._vault_dir = VAULT_DIR
+        self._init_queue()
 
     # -- helpers to call JS safely from threads --
     def _js(self, code: str):
@@ -329,11 +334,14 @@ class Api:
 
     def get_application_state(self):
         return {"version": VERSION, "output_dir": str(self._effective_output_dir()),
-                "vault_configured": bool(VAULT_DIR), "recovery_jobs": self.get_recovery_jobs()}
+                "vault_configured": bool(VAULT_DIR), "recovery_jobs": self.get_recovery_jobs(),
+                "queue": self.get_queue_state()}
 
     def get_recovery_jobs(self):
         jobs = []
         for checkpoint in recovery_checkpoints(self._effective_output_dir() / "quotes"):
+            if checkpoint.report.get('queue_owned') is True:
+                continue
             items = checkpoint.items
             jobs.append({"id": checkpoint.report_path.name,
                          "name": Path(items[0]["path"]).parent.name if items else checkpoint.path.stem,
@@ -373,16 +381,7 @@ class Api:
         if result.output_path:
             self._maybe_auto_open_output([Path(result.output_path)])
 
-    def clear_queue(self):
-        if self._job_running:
-            return
-        self._staged.clear()
-        self._staged_folders.clear()
-        self._refresh_stage_ui()
 
-    def remove_staged_file(self, path):
-        self._staged = [item for item in self._staged if item != path]
-        self._refresh_stage_ui()
 
     def get_preferences(self):
         return self._preferences_payload()
@@ -466,13 +465,13 @@ class Api:
             file_types=FILETYPES,
         )
         if result:
-            self.stage_files([str(p) for p in result])
+            return self.stage_files([str(p) for p in result])
 
     def browse_folder(self):
-        self._browse_folder_dialog(replace=True)
+        return self._browse_folder_dialog(replace=True)
 
     def add_folder(self):
-        self._browse_folder_dialog(replace=False)
+        return self._browse_folder_dialog(replace=False)
 
     def _browse_folder_dialog(self, replace: bool):
         if not self.window:
@@ -486,91 +485,18 @@ class Api:
         )
         if not result:
             return
-        self.stage_folder(Path(str(result[0])), replace=replace)
+        return self.stage_folder(Path(str(result[0])), replace=replace)
 
-    def fetch_url(self, url):
-        """Convert a URL or pasted text to markdown."""
-        if not url or not url.strip():
-            return False
-        text = url.strip()
-        return self._start_job(self._paste_worker, text)
 
-    def stage_files(self, paths):
-        """Stage files for conversion without converting immediately."""
-        if self._job_running:
-            return
-        for path in paths:
-            if Path(path).is_dir():
-                self.stage_folder(Path(path), replace=False)
-            elif Path(path).suffix.lower() in SUPPORTED:
-                if path not in self._staged:
-                    self._staged.append(path)
-                    self._log(f"Staged: {Path(path).name}", "log-info")
-            else:
-                self._log(f"Unsupported file: {Path(path).name}", "log-error")
-        self._refresh_stage_ui()
 
-    def stage_folder(self, folder: Path, replace: bool = True):
-        if self._job_running:
-            return
-        files = tuple(discover_supported_files(folder))
-        if not files:
-            self._log(f"No supported files found in {folder.name}", "log-error")
-            return
 
-        staged_folder = StagedFolder(
-            id=self._next_folder_id(),
-            path=folder,
-            file_count=len(files),
-            files=files,
-        )
 
-        if replace:
-            self._staged_folders = [staged_folder]
-            self._log(
-                f"Staged folder: {folder.name} ({staged_folder.file_count} file{'s' if staged_folder.file_count != 1 else ''})",
-                "log-info",
-            )
-        else:
-            self._staged_folders = [
-                existing for existing in self._staged_folders if existing.path != folder
-            ]
-            self._staged_folders.append(staged_folder)
-            self._log(
-                f"Added folder: {folder.name} ({staged_folder.file_count} file{'s' if staged_folder.file_count != 1 else ''})",
-                "log-info",
-            )
 
-        self._refresh_stage_ui()
-
-    def remove_staged_folder(self, folder_id: str):
-        self._staged_folders = [
-            folder for folder in self._staged_folders if folder.id != folder_id
-        ]
-        self._refresh_stage_ui()
-
-    def clear_staged_folders(self):
-        self._staged_folders = []
-        self._refresh_stage_ui()
-
-    def convert_staged(self):
-        """Convert all staged files."""
-        paths = self._collect_staged_paths()
-        if not paths:
-            return False
-        if self._job_running:
-            self._log("A conversion is already running", "log-error")
-            return False
-        def clear_queue():
-            self._staged.clear()
-            self._staged_folders = []
-            self._refresh_stage_ui()
-        return self._start_job(self._worker, paths, before_start=clear_queue)
 
     def cancel_current_job(self):
         self._cancel_event.set()
-        self._log("Stopping after saving completed work…", "log-info")
-        self._set_summary("Stopping · completed images are saved")
+        self._log("Stopping · completed work is saved…", "log-info")
+        self._set_summary("Stopping · completed work is saved")
 
     def open_output(self):
         output_dir = self._effective_output_dir()
@@ -776,11 +702,19 @@ def main():
 
     def on_loaded():
         if _NATIVE_DROP:
+            def handle_drop(action, payload):
+                try:
+                    action(payload)
+                except Exception as exc:
+                    message = f'Could not add dropped items: {exc}'
+                    api._log(message, 'log-error')
+                    api._js(f'toast({json.dumps(message)})')
             def drop_callback(file_paths):
-                api.stage_files(file_paths)
+                handle_drop(api.stage_files, file_paths)
             threading.Thread(
                 target=setup_native_drop,
                 args=(window, drop_callback),
+                kwargs={"link_callback": lambda payload: handle_drop(api.stage_drop, payload)},
                 daemon=True,
             ).start()
 

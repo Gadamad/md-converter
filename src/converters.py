@@ -315,10 +315,12 @@ def convert_image_folder_quotes(
     hooks: QuoteBatchHooks | None = None,
     raw_ocr_mode: str = "different",
     *, checkpoint_path: Path | None = None, retry_failed: bool = False,
+    preserve_completed: bool = False, selected_paths: set[str] | None = None,
 ) -> ConvertResult:
     with batch_lock(output_dir):
         return _convert_image_batch(paths, output_dir, vault_dir, hooks, raw_ocr_mode,
-                                    checkpoint_path=checkpoint_path, retry_failed=retry_failed)
+                                    checkpoint_path=checkpoint_path, retry_failed=retry_failed,
+                                    preserve_completed=preserve_completed, selected_paths=selected_paths)
 
 
 def _convert_image_batch(
@@ -328,6 +330,7 @@ def _convert_image_batch(
     hooks: QuoteBatchHooks | None = None,
     raw_ocr_mode: str = "different",
     *, checkpoint_path: Path | None = None, retry_failed: bool = False,
+    preserve_completed: bool = False, selected_paths: set[str] | None = None,
 ) -> ConvertResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = list(dict.fromkeys(paths))
@@ -335,7 +338,7 @@ def _convert_image_batch(
     if checkpoint:
         if canonical_paths(paths) != canonical_paths(item["path"] for item in checkpoint.items):
             raise ValueError("The selected files do not match this saved batch")
-        if not retry_failed:
+        if not retry_failed and not preserve_completed:
             checkpoint.invalidate_changed_sources()
     else:
         checkpoint = QuoteCheckpoint(output_dir, quote_batch_stem(paths), paths, raw_ocr_mode)
@@ -349,7 +352,8 @@ def _convert_image_batch(
         if hooks and hooks.on_status:
             hooks.on_status(message)
 
-    selected = [item for item in checkpoint.items if item["status"] == ("failed" if retry_failed else "pending")]
+    selected = [item for item in checkpoint.items if item["status"] == ("failed" if retry_failed else "pending")
+                and (selected_paths is None or item['path'] in selected_paths)]
     processed = sum(item["status"] != "pending" and item not in selected for item in checkpoint.items)
     if processed and hooks and hooks.on_image_processed:
         hooks.on_image_processed(processed, total, "Previously saved images")

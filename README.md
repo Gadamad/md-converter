@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.2.1 adds mixed-format folder conversion alongside resumable image batches, failed-only retry, streaming spreadsheets, and a redesigned native Mac interface. It retains supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.0 adds automatically saved, named queues for websites, documents, folders and pasted text. Collect sources now, close the app, and convert another day. It retains supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -105,13 +105,19 @@ That means reinstalling the app no longer removes previous converted files.
 ## GUI Walkthrough
 
 1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Folder scanning includes subfolders and ignores unsupported files.
-2. Review filenames and file counts in **Queue**. Remove individual entries or clear the whole queue.
-3. For pasted content, select **Text or URL** and enter your text or website address.
-4. Click **Convert to Markdown**. **Activity** shows the current file, completed count and any failures.
-5. Use **Stop & save** to interrupt image OCR while retaining completed work.
+2. Choose **Inbox** or create a named queue with **New**. Each addition is saved automatically. Review item statuses in **Queue**; use the queue menu to clear completed items or the whole queue.
+3. Drag website links or `.webloc` shortcuts into the app, or select **Text or URL**, paste text or one website address per line, and click **Add to queue**. Adding a link does not fetch it; the website is read when conversion starts.
+4. Click **Convert queue** to process waiting items. **Retry failed** processes unsuccessful items only. Successful items remain visible with their saved output paths; they are not converted again.
+5. Use **Stop & save** to retain completed work and leave unfinished items for later. Reopen the app to find the same collection and statuses. Missing sources offer **Locate file**.
 6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
 
 ### Image recovery
+
+Saved queues keep documents, links, text and images together in a local database, independent of the selected output folder. Conversion options are retained when work starts, so an interrupted run resumes into its original destination. Folder contents are collected when added; the queue does not watch for future folder changes. File entries reference the originals, so keep them available until conversion.
+
+On a Mac installation, saved queues live in `~/Library/Application Support/MD Converter/queues.sqlite3`; `queue-cache` beside it retains completed conversion receipts for reliable export recovery. Back up that directory together with your original files and output folders. Development runs keep these files beside `preferences.json`. Removing queue entries does not delete original files or exported Markdown. Saving a link does not archive today's website content.
+
+The controls below remain available for image batches created before saved queues. New image batches use the queue's Convert and Retry failed controls.
 
 - Image results are saved after each file to Markdown and a neighboring `.progress.json` journal.
 - If the app closes unexpectedly, **Resume** continues pending images. Submitting the same interrupted collection again resumes it automatically.

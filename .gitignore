@@ -24,5 +24,8 @@ input/
 # Local config with personal paths
 config.json
 preferences.json
+queues.sqlite3*
+queues.sqlite3.lock
+queue-cache/
 .build-cache/
 .pytest_cache/

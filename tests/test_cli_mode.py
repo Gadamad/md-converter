@@ -248,10 +248,10 @@ class FolderDiscoveryTests(unittest.TestCase):
             api.stage_folder(root)
 
         self.assertEqual(len(api._staged_folders), 1)
-        self.assertEqual(api._staged_folders[0].path, root)
+        self.assertEqual(api._staged_folders[0].path, root.resolve())
         self.assertEqual(api._staged_folders[0].file_count, 1)
 
-    def test_stage_folder_replaces_previous_folder_by_default(self):
+    def test_stage_folder_appends_to_saved_collection_by_default(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -266,8 +266,7 @@ class FolderDiscoveryTests(unittest.TestCase):
             api.stage_folder(first)
             api.stage_folder(second)
 
-        self.assertEqual(len(api._staged_folders), 1)
-        self.assertEqual(api._staged_folders[0].path, second)
+        self.assertEqual([folder.path for folder in api._staged_folders], [first.resolve(), second.resolve()])
 
     def test_stage_folder_append_mode_keeps_existing_folder(self):
         module = load_converter_app()
@@ -284,7 +283,7 @@ class FolderDiscoveryTests(unittest.TestCase):
             api.stage_folder(first)
             api.stage_folder(second, replace=False)
 
-        self.assertEqual([folder.path for folder in api._staged_folders], [first, second])
+        self.assertEqual([folder.path for folder in api._staged_folders], [first.resolve(), second.resolve()])
 
     def test_stage_folder_keeps_previous_queue_when_new_folder_has_no_supported_files(self):
         module = load_converter_app()
@@ -301,7 +300,7 @@ class FolderDiscoveryTests(unittest.TestCase):
             api.stage_folder(empty)
 
         self.assertEqual(len(api._staged_folders), 1)
-        self.assertEqual(api._staged_folders[0].path, first)
+        self.assertEqual(api._staged_folders[0].path, first.resolve())
 
     def test_remove_staged_folder_removes_only_target_folder(self):
         module = load_converter_app()
@@ -321,7 +320,7 @@ class FolderDiscoveryTests(unittest.TestCase):
             api.remove_staged_folder(remove_id)
 
         self.assertEqual(len(api._staged_folders), 1)
-        self.assertEqual(api._staged_folders[0].path, second)
+        self.assertEqual(api._staged_folders[0].path, second.resolve())
 
     def test_clear_staged_folders_empties_folder_queue(self):
         module = load_converter_app()

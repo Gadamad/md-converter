@@ -241,7 +241,8 @@ class QuoteFolderUiTests(unittest.TestCase):
             api.stage_folder(child, replace=False)
 
         js_calls = "\n".join(api.window.calls)
-        self.assertIn('setBadge("2 folders staged (2 files)")', js_calls)
+        self.assertIn('renderSavedQueue(', js_calls)
+        self.assertEqual(api.get_queue_state()['total'], 2)
 
     def test_worker_sets_failed_summary_when_quote_batch_raises(self):
         module = load_converter_app()

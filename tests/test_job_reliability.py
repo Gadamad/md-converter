@@ -51,17 +51,17 @@ class JobReliabilityTests(unittest.TestCase):
             api._worker(['a.jpg', 'b.jpg'])
         self.assertNotIn('ERROR:', str(api.window.evaluate_js.call_args_list))
 
-    def test_staged_queue_clears_before_worker_changes_view(self):
+    def test_staged_queue_survives_worker_start(self):
         module = load_converter_app()
         api = module.Api()
-        api._staged = ['a.jpg']
+        api.stage_text('Keep this queued note')
         events = []
-        with mock.patch.object(api, '_refresh_stage_ui', side_effect=lambda: events.append('queue')), \
-             mock.patch.object(api, '_worker', side_effect=lambda paths: events.append('worker')), \
+        with mock.patch.object(api, '_queue_worker', side_effect=lambda *args: events.append('worker')), \
              mock.patch.object(module.threading, 'Thread') as thread:
             thread.side_effect = lambda **kwargs: mock.Mock(start=kwargs['target'])
             api.convert_staged()
-        self.assertEqual(events, ['queue', 'worker'])
+        self.assertEqual(events, ['worker'])
+        self.assertEqual(api.get_queue_state()['total'], 1)
 
 
 if __name__ == '__main__':
