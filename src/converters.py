@@ -5,10 +5,12 @@ Five format converters with shared utilities for consistent output.
 """
 
 import hashlib
+import math
 import random
 import re
 import shutil
 import time
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -48,10 +50,14 @@ import requests
 from bs4 import BeautifulSoup
 from docx import Document
 from docx.table import Table as DocxTable
-from image_ocr import ocr_image
+from docx.text.paragraph import Paragraph
+from docx.text.run import Run
+from image_ocr import OcrCancelled, OcrSession, ocr_image, _run_backend
+from file_utils import atomic_write_text, reserve_output_path
 from markdownify import markdownify as html_to_md
 from quote_markdown import render_quote_batch_markdown
 from quote_parser import extract_quote_records
+from quote_checkpoint import QuoteCheckpoint
 from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
@@ -91,7 +97,7 @@ def _parse_retry_after(value: str | None) -> float | None:
             retry_at = retry_at.replace(tzinfo=timezone.utc)
         seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
 
-    return max(seconds, 0.0)
+    return max(seconds, 0.0) if math.isfinite(seconds) else None
 
 
 def _retry_delay_seconds(attempt: int) -> float:
@@ -113,7 +119,8 @@ def _fetch_url_html(url: str) -> str:
 
         if resp.status_code in WEB_FETCH_RETRYABLE_STATUSES and attempt < WEB_FETCH_MAX_ATTEMPTS:
             retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-            time.sleep(retry_after if retry_after is not None else _retry_delay_seconds(attempt))
+            delay = retry_after if retry_after is not None else _retry_delay_seconds(attempt)
+            time.sleep(min(delay, WEB_FETCH_MAX_DELAY_SECONDS))
             continue
 
         resp.raise_for_status()
@@ -137,6 +144,8 @@ class ConvertResult(NamedTuple):
 class QuoteBatchHooks:
     on_image_processed: Callable[[int, int, str], None] | None = None
     should_cancel: Callable[[], bool] | None = None
+    on_image_started: Callable[[int, int, str], None] | None = None
+    on_status: Callable[[str], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -229,20 +238,20 @@ def write_output(
 ) -> ConvertResult:
     """Write markdown to output_dir and optionally copy to vault."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    md_name = f"{output_stem(title, source_file, source_type)}.md"
-    md_path = output_dir / md_name
+    md_path = reserve_output_path(output_dir, output_stem(title, source_file, source_type))
+    md_name = md_path.name
 
     header = build_header(title, source_file, word_count, **(header_extras or {}))
     content = header + body + "\n"
-    md_path.write_text(content, encoding="utf-8")
+    atomic_write_text(md_path, content)
 
     # Vault delivery
     if vault_dir:
         vault_type_dir = vault_dir / source_type
         vault_type_dir.mkdir(parents=True, exist_ok=True)
-        vault_path = vault_type_dir / md_name
+        vault_path = reserve_output_path(vault_type_dir, md_path.stem)
         vault_content = vault_frontmatter(title, source_type, source_file) + content
-        vault_path.write_text(vault_content, encoding="utf-8")
+        atomic_write_text(vault_path, vault_content)
 
     return ConvertResult(True, str(md_path), word_count, f"OK -> {md_name}")
 
@@ -262,7 +271,7 @@ SUBFOLDER = {
 }
 
 
-def route(path: str, base_output: Path, vault_dir: Path | None = None) -> ConvertResult:
+def route(path: str, base_output: Path, vault_dir: Path | None = None, *, should_cancel=None) -> ConvertResult:
     """Detect format and call the right converter."""
     # URL detection
     if path.startswith("http://") or path.startswith("https://"):
@@ -275,6 +284,8 @@ def route(path: str, base_output: Path, vault_dir: Path | None = None) -> Conver
         return ConvertResult(False, "", 0, f"Unsupported format: {ext}")
 
     out = base_output / SUBFOLDER[ext]
+    if ext == ".pdf":
+        return convert_pdf(path, out, vault_dir, should_cancel=should_cancel)
     converters = {
         '.pdf': convert_pdf,
         '.docx': convert_docx,
@@ -306,33 +317,62 @@ def convert_image_folder_quotes(
     records = []
     total = len(paths)
     processed = 0
+    canceled = False
+    session = OcrSession()
+    checkpoint = QuoteCheckpoint(output_dir, quote_batch_stem(paths), total, raw_ocr_mode)
+    checkpoint.save(records, processed, "running")
+    should_cancel = hooks.should_cancel if hooks else None
+
+    def notice(message):
+        checkpoint.report["notices"].append(message)
+        if hooks and hooks.on_status:
+            hooks.on_status(message)
 
     for path in sorted(paths):
-        if hooks and hooks.should_cancel and hooks.should_cancel():
+        if should_cancel and should_cancel():
+            canceled = True
             break
-        ocr_result = ocr_image(Path(path))
-        records.extend(extract_quote_records(ocr_result.text, source_image=Path(path).name))
+        name = Path(path).name
+        checkpoint.save(records, processed, "running", str(path))
+        if hooks and hooks.on_image_started:
+            hooks.on_image_started(processed + 1, total, name)
+        try:
+            ocr_result = ocr_image(Path(path), should_cancel=should_cancel,
+                                   session=session, on_status=notice)
+            new_records = extract_quote_records(ocr_result.text, source_image=name)
+            if not new_records:
+                raise ValueError("No quotes found in image")
+            records.extend(new_records)
+        except OcrCancelled:
+            canceled = True
+            break
+        except Exception as exc:
+            checkpoint.report["failed"].append({"image": str(path), "error": str(exc)})
+            notice(f"Failed: {name}: {exc}")
         processed += 1
+        checkpoint.save(records, processed, "running")
         if hooks and hooks.on_image_processed:
-            hooks.on_image_processed(processed, total, Path(path).name)
+            hooks.on_image_processed(processed, total, name)
 
-    if not records:
-        if hooks and hooks.should_cancel and hooks.should_cancel():
-            return ConvertResult(False, "", 0, f"CANCELED ({processed}/{total} images processed)")
-        return ConvertResult(False, "", 0, "SKIPPED (no quotes found)")
-
-    markdown = render_quote_batch_markdown(records, raw_ocr_mode=raw_ocr_mode)
-    output_path = unique_markdown_path(output_dir, quote_batch_stem(paths))
-    output_path.write_text(markdown, encoding="utf-8")
-
-    if vault_dir:
-        vault_quotes_dir = vault_dir / "quotes"
-        vault_quotes_dir.mkdir(parents=True, exist_ok=True)
-        (vault_quotes_dir / output_path.name).write_text(markdown, encoding="utf-8")
-
+    failed = len(checkpoint.report["failed"])
+    state = "canceled" if canceled else "completed_with_errors" if failed else "completed"
+    checkpoint.save(records, processed, state)
+    output_path = checkpoint.path
     total_words = sum(len(record.quote.split()) for record in records)
-    if hooks and hooks.should_cancel and hooks.should_cancel() and processed < total:
-        return ConvertResult(False, str(output_path), total_words, f"CANCELED -> {output_path.name} ({processed}/{total} images)")
+
+    if vault_dir and records:
+        vault_quotes_dir = vault_dir / "quotes"
+        vault_path = reserve_output_path(vault_quotes_dir, output_path.stem)
+        atomic_write_text(vault_path, output_path.read_text(encoding="utf-8"))
+
+    if canceled:
+        message = f"CANCELED -> {output_path.name} ({processed}/{total} images)" if records else f"CANCELED ({processed}/{total} images processed)"
+        return ConvertResult(False, str(output_path), total_words, message)
+    if failed:
+        return ConvertResult(False, str(output_path), total_words,
+                             f"PARTIAL -> {output_path.name} ({processed - failed}/{total} succeeded; {failed} failed; see progress report)")
+    if not records:
+        return ConvertResult(False, str(output_path), 0, "SKIPPED (no quotes found)")
     return ConvertResult(True, str(output_path), total_words, f"OK -> {output_path.name}")
 
 
@@ -340,83 +380,53 @@ def convert_image_folder_quotes(
 # 1. PDF converter (with OCR auto-fallback)
 # ---------------------------------------------------------------------------
 
-def convert_pdf(path: str, output_dir: Path, vault_dir: Path | None = None) -> ConvertResult:
-    """Convert a PDF to Markdown. Falls back to OCR if no selectable text."""
-    p = Path(path)
-    doc = fitz.open(path)
-    pages = []
-    total_words = 0
-    page_count = len(doc)
-
-    for i in range(page_count):
-        text = doc[i].get_text("text")
-        if text.strip():
-            pages.append((i + 1, text))
-            total_words += len(text.split())
-    doc.close()
-
-    # Auto-fallback to OCR
-    if total_words == 0:
-        return _convert_pdf_ocr(path, output_dir, vault_dir)
-
-    body_lines = []
-    for num, text in pages:
-        body_lines.append(f"## Page {num}\n")
-        body_lines.append(normalize_blanks(text.strip()))
-        body_lines.append("")
-
-    body = "\n".join(body_lines)
-    return write_output(
-        body, p.stem, p.name, total_words, output_dir, "pdf", vault_dir,
-        header_extras={"Pages": str(page_count)},
-    )
+def _ocr_pdf_page(page, should_cancel=None) -> str:
+    # Cap rendered dimensions to avoid unbounded 300-DPI image allocations.
+    scale = min(200 / 72, 2200 / max(page.rect.width, page.rect.height))
+    with tempfile.TemporaryDirectory(prefix="md-converter-pdf-") as directory:
+        path = Path(directory) / "page.png"
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), colorspace=fitz.csRGB)
+        pix.save(path)
+        return _run_backend("tesseract", path, should_cancel=should_cancel).text
 
 
-def _convert_pdf_ocr(path: str, output_dir: Path, vault_dir: Path | None = None) -> ConvertResult:
-    """OCR fallback for scanned PDFs."""
-    try:
-        import pytesseract
-        from PIL import Image
-    except ImportError:
-        return ConvertResult(False, "", 0, "ERROR: pytesseract/Pillow not installed for OCR")
-
-    p = Path(path)
-    doc = fitz.open(path)
-    page_count = len(doc)
-    pages = []
-    total_words = 0
-    zoom = 300 / 72
-    matrix = fitz.Matrix(zoom, zoom)
-    start = time.time()
-
-    for i in range(page_count):
-        pix = doc[i].get_pixmap(matrix=matrix)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        text = pytesseract.image_to_string(img)
-        if text.strip():
-            pages.append((i + 1, text))
-            total_words += len(text.split())
-    doc.close()
-    elapsed = time.time() - start
-
-    if total_words == 0:
-        return ConvertResult(False, "", 0, "ERROR: No text extracted even with OCR")
-
-    body_lines = []
-    for num, text in pages:
-        body_lines.append(f"## Page {num}\n")
-        body_lines.append(normalize_blanks(text.strip()))
-        body_lines.append("")
-
-    body = "\n".join(body_lines)
-    return write_output(
-        body, p.stem, p.name, total_words, output_dir, "pdf", vault_dir,
-        header_extras={
-            "Pages": str(page_count),
-            "Extracted via": "Tesseract OCR (local)",
-            "Processing time": f"{elapsed:.1f}s",
-        },
-    )
+def convert_pdf(path: str, output_dir: Path, vault_dir: Path | None = None, *, should_cancel=None) -> ConvertResult:
+    """Extract each page independently, preserving partial results on OCR failure."""
+    source = Path(path)
+    body = []
+    failures = []
+    words = 0
+    canceled = False
+    with fitz.open(path) as doc:
+        page_count = len(doc)
+        for index, page in enumerate(doc, start=1):
+            if should_cancel and should_cancel():
+                canceled = True
+                break
+            text = page.get_text().strip()
+            if not text and (page.get_images() or page.get_drawings()):
+                try:
+                    text = _ocr_pdf_page(page, should_cancel=should_cancel)
+                except OcrCancelled:
+                    canceled = True
+                    break
+                except Exception as exc:
+                    failures.append(index)
+                    body.extend([f"## Page {index}", f"OCR failed: {exc}", ""])
+                    continue
+            if text:
+                words += len(text.split())
+                body.extend([f"## Page {index}", normalize_blanks(text), ""])
+    if not body:
+        return ConvertResult(False, "", 0, "CANCELED" if canceled else "SKIPPED (empty PDF)")
+    result = write_output("\n".join(body), source.stem, source.name, words,
+                          output_dir, "pdf", vault_dir, header_extras={"Pages": str(page_count)})
+    if canceled:
+        return ConvertResult(False, result.output_path, words, f"CANCELED -> {Path(result.output_path).name}")
+    if failures:
+        return ConvertResult(False, result.output_path, words,
+                             f"PARTIAL -> {Path(result.output_path).name}; OCR failed on pages {failures}")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +448,9 @@ def _run_to_md(run) -> str:
 
 def _para_to_md(para) -> str:
     style = para.style.name.lower()
-    parts = [_run_to_md(r) for r in para.runs]
+    # Paragraph.runs omits hyperlink runs. XPath preserves their document order.
+    parts = [_run_to_md(Run(element, para))
+             for element in para._p.xpath("./w:r | ./w:hyperlink/w:r")]
     text = "".join(parts).strip() or para.text.strip()
     if not text:
         return ""
@@ -467,7 +479,7 @@ def _para_to_md(para) -> str:
 def _table_to_md(table: DocxTable) -> str:
     rows = []
     for row in table.rows:
-        cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+        cells = [c.text.strip().replace("|", r"\|").replace("\n", " ") for c in row.cells]
         rows.append(cells)
     if not rows:
         return ""
@@ -492,21 +504,15 @@ def convert_docx(path: str, output_dir: Path, vault_dir: Path | None = None) -> 
     for child in doc.element.body:
         tag = child.tag.split("}")[-1]
         if tag == "p":
-            for para in doc.paragraphs:
-                if para._element is child:
-                    line = _para_to_md(para)
-                    blocks.append(line if line else "")
-                    if line:
-                        word_count += len(line.split())
-                    break
+            line = _para_to_md(Paragraph(child, doc))
+            blocks.append(line if line else "")
+            if line:
+                word_count += len(line.split())
         elif tag == "tbl":
-            for table in doc.tables:
-                if table._tbl is child:
-                    md = _table_to_md(table)
-                    if md:
-                        blocks.extend(["", md, ""])
-                        word_count += len(md.split())
-                    break
+            md = _table_to_md(DocxTable(child, doc))
+            if md:
+                blocks.extend(["", md, ""])
+                word_count += len(md.split())
 
     body = normalize_blanks("\n".join(blocks)).strip()
     if word_count == 0:

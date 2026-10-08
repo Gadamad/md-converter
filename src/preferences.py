@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
+from file_utils import atomic_write_text
 
 
 ThemeMode = Literal["system", "dark", "light"]
@@ -32,9 +33,12 @@ def _parse_auto_open_output(value: object) -> bool:
 
 
 def _parse_output_dir(value: object) -> Path | None:
-    if value in {None, ""}:
+    if not isinstance(value, str) or not value or "\0" in value:
         return None
-    path = Path(str(value)).expanduser()
+    try:
+        path = Path(value).expanduser()
+    except RuntimeError:
+        return None
     if not path.is_absolute():
         return None
     return path
@@ -90,7 +94,7 @@ class Preferences:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(path, json.dumps(self.to_dict(), indent=2) + "\n")
 
     @classmethod
     def load(cls, path: Path) -> Preferences:

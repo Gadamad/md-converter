@@ -139,7 +139,9 @@ class QuoteFolderUiTests(unittest.TestCase):
 
         def fake_convert(paths, output_dir, vault_dir=None, hooks=None, raw_ocr_mode="different"):
             assert hooks is not None
+            hooks.on_image_started(1, 2, "a.jpg")
             hooks.on_image_processed(1, 2, "a.jpg")
+            hooks.on_image_started(2, 2, "b.jpg")
             hooks.on_image_processed(2, 2, "b.jpg")
             return module.ConvertResult(True, "out/extracted_quotes.md", 12, "OK -> extracted_quotes.md")
 

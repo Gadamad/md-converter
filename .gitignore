@@ -21,3 +21,6 @@ input/
 
 # Local config with personal paths
 config.json
+preferences.json
+.build-cache/
+.pytest_cache/

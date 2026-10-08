@@ -7,6 +7,8 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
+Version 0.1.0 adds supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
+
 Everything runs locally on your machine. No API calls, no cloud upload, no hidden service dependency.
 
 ## Why People Find It Useful
@@ -111,7 +113,7 @@ The app is designed for non-technical use:
 6. Paste plain text to save it as Markdown.
 7. Click `Convert`.
 8. Watch per-image progress in the progress bar and summary line while larger quote batches run.
-9. Use `Abort` to stop a running batch after the current image finishes.
+9. Use `Abort` to stop the active OCR worker and keep completed image exports.
 10. Use `Open Output` to jump straight to the generated files.
 11. Use `Preferences` for app-wide defaults like theme, Raw OCR visibility, output folder, and auto-open behavior.
 
@@ -128,7 +130,10 @@ The quote-image workflow uses one larger operational panel instead of separate s
 - You can remove one staged folder at a time or clear the whole folder queue.
 - During conversion, the same panel switches into live progress/log mode.
 - Progress updates per image, so a batch with hundreds of screenshots shows where it is.
-- `Abort` is cooperative: the app stops after the current image completes and keeps any partial output already written.
+- `Abort` interrupts the active image OCR worker; completed images are already saved.
+- Each OCR backend has a 30-second deadline. A Vision timeout switches the remaining batch to Tesseract.
+- Unreadable images are listed in the export and progress report while the remaining images continue.
+- The current Markdown export and adjacent `.progress.json` file are updated atomically after every image. A `running` report left after a crash indicates an interrupted batch; automatic resume is not yet implemented.
 - Quote exports are merged into one Markdown file per batch.
 - Quote export filenames are versioned automatically, for example:
   - `stoicism-app_quotes_355-images_20260627_174500.md`
@@ -285,10 +290,10 @@ Build the macOS app bundle:
 bash scripts/build_app.sh
 ```
 
-Run the basic CLI regression test:
+Run the complete regression suite:
 
 ```bash
-python3 -m unittest tests/test_cli_mode.py
+python3 -B -m unittest discover -s tests
 ```
 
 ## Project Structure
@@ -323,3 +328,14 @@ That keeps the public repo focused on the tool itself rather than personal data.
 ## License
 
 MIT. See `LICENSE`.
+
+## Reliability and review notes
+
+- Image OCR runs in disposable subprocesses. Timeouts and Abort terminate their process groups, including any Tesseract child.
+- A failed image does not stop the remaining images; failed files and fallback notices appear in the progress report.
+- Repeated exports use numbered filenames, preserving earlier exports and vault copies.
+- Mixed PDFs OCR pages without selectable text when those pages contain image or vector content. OCR failures retain available text and are reported as partial exports.
+- macOS builds show version 0.1.0 in their window title and store the revision/source hash in `Contents/Info.plist`.
+- `constraints-macos-py314.txt` records the environment used for this release. To reproduce it in a compatible macOS ARM64 / Python 3.14 environment, install with `pip install -r requirements.txt -c constraints-macos-py314.txt`, and install the pinned PyInstaller version from that file for builds.
+
+See [the code review and update recommendations](documentation/code-review-2026-10-08.md) for measured performance, remaining limitations, and recommended dependency updates.

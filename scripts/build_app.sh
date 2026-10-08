@@ -17,6 +17,7 @@ SRC_DIR="$PROJECT_DIR/src"
 VENV="$PROJECT_DIR/.venv"
 PYTHON="$VENV/bin/python3"
 PYINSTALLER="$VENV/bin/pyinstaller"
+export PYINSTALLER_CONFIG_DIR="$PROJECT_DIR/.build-cache"
 
 echo "=== MD Converter — macOS App Build ==="
 echo "Project : $PROJECT_DIR"
@@ -61,6 +62,9 @@ cd "$SRC_DIR"
     --hidden-import=AppKit \
     --hidden-import=Foundation \
     --hidden-import=native_drop \
+    --hidden-import=ocr_worker \
+    --hidden-import=Vision \
+    --clean \
     --noconfirm \
     converter_app.py
 
@@ -71,6 +75,8 @@ echo ""
 # -------------------------------------------------------------------
 APP_PATH="$SRC_DIR/dist/MD Converter.app"
 if [ -d "$APP_PATH" ]; then
+    "$PYTHON" -B "$SCRIPTS_DIR/stamp_build.py" "$APP_PATH"
+    /usr/bin/codesign --force --deep --sign - "$APP_PATH"
     echo "=== BUILD SUCCEEDED ==="
     echo "App bundle: $APP_PATH"
     echo ""

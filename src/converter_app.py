@@ -8,6 +8,12 @@ Converts to Markdown, organizes by type, delivers to Obsidian vault.
 import json
 import subprocess
 import sys
+
+# A frozen worker reuses this executable, but must never initialize WebKit.
+if __name__ == "__main__" and sys.argv[1:2] == ["--ocr-worker"]:
+    from ocr_worker import main as ocr_worker_main
+    raise SystemExit(ocr_worker_main(sys.argv[2:]))
+
 import threading
 from pathlib import Path
 from typing import Callable, NamedTuple
@@ -83,9 +89,13 @@ class QuoteBatchHooks:
         self,
         on_image_processed: Callable[[int, int, str], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        on_image_started: Callable[[int, int, str], None] | None = None,
+        on_status: Callable[[str], None] | None = None,
     ):
         self.on_image_processed = on_image_processed
         self.should_cancel = should_cancel
+        self.on_image_started = on_image_started
+        self.on_status = on_status
 
 
 def discover_quote_images(folder: Path) -> list[str]:
@@ -873,6 +883,7 @@ class Api:
         self._cancel_event = threading.Event()
         self._folder_sequence = 0
         self._job_running = False
+        self._job_lock = threading.Lock()
         self._preferences_path = default_preferences_path()
         self._preferences = Preferences.load(self._preferences_path)
 
@@ -1056,10 +1067,46 @@ class Api:
 
     def convert_files(self, paths):
         """Called from JS drop or browse."""
-        if self._job_running:
+        self._start_job(self._worker, list(paths))
+
+    def _start_job(self, target, *args, before_start=None):
+        if not self._job_lock.acquire(blocking=False):
             self._log("A conversion is already running", "log-error")
-            return
-        threading.Thread(target=self._worker, args=(list(paths),), daemon=True).start()
+            return False
+        if self._job_running:
+            self._job_lock.release()
+            self._log("A conversion is already running", "log-error")
+            return False
+        self._job_running = True
+        self._cancel_event.clear()
+
+        def run():
+            try:
+                target(*args)
+            finally:
+                self._job_running = False
+                self._job_lock.release()
+
+        try:
+            if before_start:
+                before_start()
+            threading.Thread(target=run, daemon=True).start()
+        except Exception:
+            self._job_running = False
+            self._job_lock.release()
+            raise
+        return True
+
+    def _run_worker(self, target, *args):
+        self._job_running = True
+        try:
+            target(*args)
+        except Exception as exc:
+            self._log(f"ERROR: {exc}", "log-error")
+            self._set_summary(f"Failed: {exc}")
+        finally:
+            self._job_running = False
+            self._hide_abort_button()
 
     def browse_files(self):
         """Open native file dialog and stage selected files."""
@@ -1096,11 +1143,8 @@ class Api:
         """Convert a URL or pasted text to markdown."""
         if not url:
             return
-        if self._job_running:
-            self._log("A conversion is already running", "log-error")
-            return
         text = url.strip()
-        threading.Thread(target=self._paste_worker, args=(text,), daemon=True).start()
+        self._start_job(self._paste_worker, text)
 
     def stage_files(self, paths):
         """Stage files for conversion without converting immediately."""
@@ -1158,10 +1202,11 @@ class Api:
         if self._job_running:
             self._log("A conversion is already running", "log-error")
             return
-        self._staged.clear()
-        self._staged_folders = []
-        self._refresh_stage_ui()
-        threading.Thread(target=self._worker, args=(paths,), daemon=True).start()
+        def clear_queue():
+            self._staged.clear()
+            self._staged_folders = []
+            self._refresh_stage_ui()
+        self._start_job(self._worker, paths, before_start=clear_queue)
 
     def cancel_current_job(self):
         self._cancel_event.set()
@@ -1189,14 +1234,16 @@ class Api:
             pass
 
     def close_window(self):
+        self._cancel_event.set()
         if self.window:
             self.window.destroy()
 
     # -- paste worker (URL or plain text) --
 
     def _paste_worker(self, text: str):
-        self._job_running = True
-        self._cancel_event.clear()
+        self._run_worker(self._paste_worker_body, text)
+
+    def _paste_worker_body(self, text: str):
         use_vault = self._vault_checked()
         vault_dir = VAULT_DIR if use_vault else None
         output_dir = self._effective_output_dir()
@@ -1207,24 +1254,20 @@ class Api:
         self._log(f"Converting: {display}", "log-info")
         self._set_progress(0)
 
-        try:
-            r = convert_pasted(text, output_dir, vault_dir)
-            tag = "log-ok" if r.success else "log-error"
-            self._log(f"  {r.message} ({r.word_count:,} words)", tag)
-            if r.success and r.output_path:
-                self._maybe_auto_open_output([Path(r.output_path)])
-        except Exception as e:
-            self._log(f"  ERROR: {e}", "log-error")
-        finally:
-            self._job_running = False
-            self._set_progress(100)
-            self._set_summary(f"Done: 1 item converted")
+        r = convert_pasted(text, output_dir, vault_dir)
+        tag = "log-ok" if r.success else "log-error"
+        self._log(f"  {r.message} ({r.word_count:,} words)", tag)
+        self._set_progress(100)
+        self._set_summary("Done: 1 item converted" if r.success else f"Failed: {r.message}")
+        if r.success and r.output_path:
+            self._maybe_auto_open_output([Path(r.output_path)])
 
     # -- worker (runs in background thread) --
 
     def _worker(self, paths: list[str]):
-        self._job_running = True
-        self._cancel_event.clear()
+        self._run_worker(self._worker_body, paths)
+
+    def _worker_body(self, paths: list[str]):
         use_vault = self._vault_checked()
         vault_dir = VAULT_DIR if use_vault else None
         output_dir = self._effective_output_dir()
@@ -1246,13 +1289,16 @@ class Api:
             image_processed = 0
             image_batch_completed = False
 
+            def on_image_started(current: int, total_images: int, image_name: str):
+                self._set_summary(f"Processing {processed + current} / {total}: {image_name}")
+
             def on_image_processed(current: int, total_images: int, image_name: str):
                 nonlocal image_processed
                 image_processed = current
                 overall_processed = processed + current
                 pct = (overall_processed / total) * 100 if total else 100
                 self._set_progress(pct)
-                self._set_summary(f"Processing {overall_processed} / {total}: {image_name}")
+                self._set_summary(f"Processed {overall_processed} / {total}: {image_name}")
 
             try:
                 result = convert_image_folder_quotes(
@@ -1262,15 +1308,17 @@ class Api:
                     hooks=QuoteBatchHooks(
                         on_image_processed=on_image_processed,
                         should_cancel=self._cancel_event.is_set,
+                        on_image_started=on_image_started,
+                        on_status=lambda message: self._log(message, "log-info"),
                     ),
                     raw_ocr_mode=self._preferences.raw_ocr_mode,
                 )
                 total_words += result.word_count
+                if result.output_path:
+                    successful_outputs.append(Path(result.output_path))
                 if result.success:
                     ok_count += image_processed or len(image_paths)
                     tag = "log-ok"
-                    if result.output_path:
-                        successful_outputs.append(Path(result.output_path))
                 else:
                     job_failed = True
                     tag = "log-error"
@@ -1298,7 +1346,8 @@ class Api:
             self._set_summary(f"Processing {processed + 1} / {total}: {name}")
 
             try:
-                r = route(path, output_dir, vault_dir)
+                options = {"should_cancel": self._cancel_event.is_set} if Path(path).suffix.lower() == ".pdf" else {}
+                r = route(path, output_dir, vault_dir, **options)
                 total_words += r.word_count
                 if r.success:
                     ok_count += 1
@@ -1329,9 +1378,7 @@ class Api:
         self._log(f"\n{summary_text}", summary_tag)
         self._set_summary(summary_text)
         self._set_badge(None)
-        self._hide_abort_button()
         self._maybe_auto_open_output(successful_outputs)
-        self._job_running = False
 
     def _quote_folder_worker(self, paths: list[str]):
         self._worker(paths)
@@ -1342,6 +1389,7 @@ class Api:
 # ---------------------------------------------------------------------------
 
 def main():
+    from app_version import VERSION
     # CLI mode: arguments provided
     if len(sys.argv) > 1:
         cli_mode(sys.argv[1:])
@@ -1354,7 +1402,7 @@ def main():
     html = HTML.replace("VAULT_CHECKED", vault_checked)
 
     window = webview.create_window(
-        "MD Converter",
+        f"MD Converter {VERSION}",
         html=html,
         js_api=api,
         width=660,
@@ -1363,6 +1411,7 @@ def main():
         background_color="#1e1e2e",
     )
     api.window = window
+    window.events.closing += lambda: api._cancel_event.set()
 
     def on_loaded():
         if _NATIVE_DROP:
