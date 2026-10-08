@@ -4,7 +4,7 @@ Refined native Mac utility. Use the system font, generous but practical spacing,
 
 - Header: product name and Preferences.
 - Source switch: files/folders or pasted text/URL.
-- Files: a compact drop target and a single aligned Add files / Add folder toolbar.
+- Files: a compact drop target and a single aligned Add files / Add folder toolbar. Folders can contain any supported formats, including nested files.
 - Workspace: queue and activity tabs; readable filenames with full paths available on hover.
 - Recovery: interrupted batches offer Resume; failed batches offer Retry failed. Show saved and failed counts.
 - Footer: destination and optional vault delivery; one primary Convert action. During image processing, replace it with Stop & save.

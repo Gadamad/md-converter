@@ -84,7 +84,7 @@ textarea::placeholder { color:var(--muted); }
  <div class="source-heading"><div class="segmented" role="tablist" aria-label="Source"><button id="files-tab" role="tab" aria-selected="true" aria-controls="files-source">Files & folders</button><button id="text-tab" role="tab" aria-selected="false" aria-controls="text-source" tabindex="-1">Text or URL</button></div><span class="local-note"><svg><use href="#i-check"/></svg>File conversion stays on your Mac</span></div>
  <div id="files-source" role="tabpanel" aria-labelledby="files-tab">
   <button id="drop-zone" class="drop-zone" aria-label="Drop files here or browse files"><svg class="drop-symbol"><use href="#i-file"/></svg><span class="drop-title">Drop something worth keeping</span><span class="drop-subtitle">PDF, Word, Excel, images, HTML, text & RTF</span></button>
-  <div class="input-toolbar"><button id="add-files-btn"><svg><use href="#i-plus"/></svg>Add files</button><button id="add-folder-btn"><svg><use href="#i-folder"/></svg>Add image folder</button><span class="input-hint">Folders include images in subfolders</span></div>
+  <div class="input-toolbar"><button id="add-files-btn"><svg><use href="#i-plus"/></svg>Add files</button><button id="add-folder-btn"><svg><use href="#i-folder"/></svg>Add folder</button><span class="input-hint">Includes supported files in subfolders</span></div>
  </div>
  <div id="text-source" role="tabpanel" aria-labelledby="text-tab" hidden><label for="url-input" class="visually-hidden">Text or website URL to convert</label><textarea id="url-input" placeholder="Paste your text, or a website URL…" spellcheck="false"></textarea></div>
 </section>
@@ -151,7 +151,7 @@ function showWorkspace(mode) { workspaceMode = mode; const queue = mode === 'que
 function showLogPanel() { showWorkspace('activity'); }
 function switchSource(mode) { sourceMode = mode; const files = mode === 'files'; $('files-source').hidden = !files; $('text-source').hidden = files; for (const [id,selected] of [['files-tab',files],['text-tab',!files]]) { $(id).setAttribute('aria-selected',String(selected)); $(id).tabIndex = selected ? 0 : -1; } updateActions(); }
 function renderFolderQueue(items, state={}) {
- const files = state.files || []; queued = state.total_count ?? ((state.file_count || 0) + items.reduce((n,item) => n + item.image_count,0));
+ const files = state.files || []; queued = state.total_count ?? ((state.file_count || 0) + items.reduce((n,item) => n + item.file_count,0));
  $('queue-count').textContent = String(queued); $('folder-queue').replaceChildren(); $('queue-empty').hidden = Boolean(queued);
  const all = [...items.map(item => ({...item,folder:true})),...files];
  for (const item of all) {
@@ -159,7 +159,7 @@ function renderFolderQueue(items, state={}) {
   const symbol = document.createElement('div'); symbol.className = 'file-icon'; if (item.folder) symbol.appendChild(icon('folder')); else symbol.textContent = item.name.split('.').pop().slice(0,4).toUpperCase();
   const copy = document.createElement('div'); copy.className = 'queue-copy';
   const name = document.createElement('div'); name.className = 'queue-name'; name.textContent = item.name;
-  const meta = document.createElement('div'); meta.className = 'queue-meta'; meta.textContent = (item.folder ? item.image_count+' images · ' : '')+item.path; copy.title = item.path; copy.append(name,meta);
+  const meta = document.createElement('div'); meta.className = 'queue-meta'; meta.textContent = (item.folder ? item.file_count+(item.file_count === 1 ? ' file · ' : ' files · ') : '')+item.path; copy.title = item.path; copy.append(name,meta);
   const remove = document.createElement('button'); remove.className = 'btn folder-remove-btn'; remove.textContent = 'Remove'; remove.setAttribute('aria-label','Remove '+item.name); remove.onclick = () => callApi(item.folder ? 'remove_staged_folder' : 'remove_staged_file',item.folder ? item.id : item.path);
   row.append(symbol,copy,remove); $('folder-queue').appendChild(row);
  }

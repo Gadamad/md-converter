@@ -217,7 +217,7 @@ class CliModeTests(unittest.TestCase):
 
 
 class FolderDiscoveryTests(unittest.TestCase):
-    def test_discover_quote_images_returns_supported_images_recursively(self):
+    def test_discover_supported_files_returns_supported_files_recursively(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -226,9 +226,9 @@ class FolderDiscoveryTests(unittest.TestCase):
             nested.mkdir()
             (root / "cover.jpg").write_bytes(b"img")
             (nested / "page.png").write_bytes(b"img")
-            (root / "notes.txt").write_text("ignore", encoding="utf-8")
+            (root / "notes.zip").write_bytes(b"ignore")
 
-            images = module.discover_quote_images(root)
+            images = module.discover_supported_files(root)
 
         self.assertEqual(
             images,
@@ -238,20 +238,20 @@ class FolderDiscoveryTests(unittest.TestCase):
             ],
         )
 
-    def test_browse_folder_stages_supported_images_from_selected_directory(self):
+    def test_browse_folder_stages_supported_files_from_selected_directory(self):
         module = load_converter_app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "cover.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(root)
+            api.stage_folder(root)
 
         self.assertEqual(len(api._staged_folders), 1)
         self.assertEqual(api._staged_folders[0].path, root)
-        self.assertEqual(api._staged_folders[0].image_count, 1)
+        self.assertEqual(api._staged_folders[0].file_count, 1)
 
-    def test_stage_quote_folder_replaces_previous_folder_by_default(self):
+    def test_stage_folder_replaces_previous_folder_by_default(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -263,13 +263,13 @@ class FolderDiscoveryTests(unittest.TestCase):
             (second / "two.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(first)
-            api.stage_quote_folder(second)
+            api.stage_folder(first)
+            api.stage_folder(second)
 
         self.assertEqual(len(api._staged_folders), 1)
         self.assertEqual(api._staged_folders[0].path, second)
 
-    def test_stage_quote_folder_append_mode_keeps_existing_folder(self):
+    def test_stage_folder_append_mode_keeps_existing_folder(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -281,12 +281,12 @@ class FolderDiscoveryTests(unittest.TestCase):
             (second / "two.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(first)
-            api.stage_quote_folder(second, replace=False)
+            api.stage_folder(first)
+            api.stage_folder(second, replace=False)
 
         self.assertEqual([folder.path for folder in api._staged_folders], [first, second])
 
-    def test_stage_quote_folder_keeps_previous_queue_when_new_folder_has_no_images(self):
+    def test_stage_folder_keeps_previous_queue_when_new_folder_has_no_supported_files(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -297,8 +297,8 @@ class FolderDiscoveryTests(unittest.TestCase):
             (first / "one.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(first)
-            api.stage_quote_folder(empty)
+            api.stage_folder(first)
+            api.stage_folder(empty)
 
         self.assertEqual(len(api._staged_folders), 1)
         self.assertEqual(api._staged_folders[0].path, first)
@@ -315,8 +315,8 @@ class FolderDiscoveryTests(unittest.TestCase):
             (second / "two.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(first)
-            api.stage_quote_folder(second, replace=False)
+            api.stage_folder(first)
+            api.stage_folder(second, replace=False)
             remove_id = api._staged_folders[0].id
             api.remove_staged_folder(remove_id)
 
@@ -332,7 +332,7 @@ class FolderDiscoveryTests(unittest.TestCase):
             (first / "one.jpg").write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(first)
+            api.stage_folder(first)
             api.clear_staged_folders()
 
         self.assertEqual(api._staged_folders, [])

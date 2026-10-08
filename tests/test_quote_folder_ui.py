@@ -185,7 +185,7 @@ class QuoteFolderUiTests(unittest.TestCase):
 
         run_mock.assert_called_with(["open", str(Path("/tmp/output").resolve())])
 
-    def test_collect_staged_paths_dedupes_overlapping_folder_images(self):
+    def test_collect_staged_paths_dedupes_overlapping_folder_files(self):
         module = load_converter_app()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -199,8 +199,8 @@ class QuoteFolderUiTests(unittest.TestCase):
             second.write_bytes(b"img")
 
             api = module.Api()
-            api.stage_quote_folder(parent)
-            api.stage_quote_folder(child, replace=False)
+            api.stage_folder(parent)
+            api.stage_folder(child, replace=False)
 
             paths = api._collect_staged_paths()
 
@@ -216,7 +216,7 @@ class QuoteFolderUiTests(unittest.TestCase):
 
         self.assertEqual(paths, ["/tmp/example.txt"])
 
-    def test_folder_badge_uses_unique_image_count_for_overlapping_folders(self):
+    def test_folder_badge_uses_unique_file_count_for_overlapping_folders(self):
         module = load_converter_app()
 
         class FakeWindow:
@@ -237,11 +237,11 @@ class QuoteFolderUiTests(unittest.TestCase):
 
             api = module.Api()
             api.window = FakeWindow()
-            api.stage_quote_folder(parent)
-            api.stage_quote_folder(child, replace=False)
+            api.stage_folder(parent)
+            api.stage_folder(child, replace=False)
 
         js_calls = "\n".join(api.window.calls)
-        self.assertIn('setBadge("2 folders staged (2 images)")', js_calls)
+        self.assertIn('setBadge("2 folders staged (2 files)")', js_calls)
 
     def test_worker_sets_failed_summary_when_quote_batch_raises(self):
         module = load_converter_app()

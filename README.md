@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.2.0 adds resumable image batches, failed-only retry, streaming spreadsheets, and a redesigned native Mac interface. It retains supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.2.1 adds mixed-format folder conversion alongside resumable image batches, failed-only retry, streaming spreadsheets, and a redesigned native Mac interface. It retains supervised OCR, incremental exports, and collision-safe output files. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -104,8 +104,8 @@ That means reinstalling the app no longer removes previous converted files.
 
 ## GUI Walkthrough
 
-1. Use **Files & folders** to drop files, add files, or add an image folder. Folder scanning includes subfolders.
-2. Review filenames and image counts in **Queue**. Remove individual entries or clear the whole queue.
+1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Folder scanning includes subfolders and ignores unsupported files.
+2. Review filenames and file counts in **Queue**. Remove individual entries or clear the whole queue.
 3. For pasted content, select **Text or URL** and enter your text or website address.
 4. Click **Convert to Markdown**. **Activity** shows the current file, completed count and any failures.
 5. Use **Stop & save** to interrupt image OCR while retaining completed work.

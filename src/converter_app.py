@@ -36,7 +36,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 APP_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_QUOTE_FOLDER = Path.home() / "Pictures"
+DEFAULT_INPUT_FOLDER = Path.home() / "Documents"
 
 
 def _output_dir() -> Path:
@@ -81,8 +81,8 @@ QUOTE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 class StagedFolder(NamedTuple):
     id: str
     path: Path
-    image_count: int
-    images: tuple[str, ...]
+    file_count: int
+    files: tuple[str, ...]
 
 
 class QuoteBatchHooks:
@@ -99,11 +99,11 @@ class QuoteBatchHooks:
         self.on_status = on_status
 
 
-def discover_quote_images(folder: Path) -> list[str]:
+def discover_supported_files(folder: Path) -> list[str]:
     return sorted(
         str(path)
         for path in folder.rglob("*")
-        if path.is_file() and path.suffix.lower() in QUOTE_IMAGE_EXTENSIONS
+        if path.is_file() and path.suffix.lower() in SUPPORTED
     )
 
 
@@ -217,7 +217,7 @@ class Api:
                 "id": folder.id,
                 "name": folder.path.name,
                 "path": str(folder.path),
-                "image_count": folder.image_count,
+                "file_count": folder.file_count,
             }
             for folder in self._staged_folders
         ]
@@ -226,7 +226,7 @@ class Api:
             "files": [{"path": p, "name": Path(p).name} for p in dict.fromkeys(self._staged)],
             "file_count": len(self._staged),
             "folder_count": len(self._staged_folders),
-            "image_count": self._unique_staged_folder_image_count(),
+            "folder_file_count": self._unique_staged_folder_file_count(),
         }
         self._js(f"renderFolderQueue({json.dumps(payload)}, {json.dumps(state)})")
 
@@ -249,7 +249,7 @@ class Api:
         self._render_staged_folders()
         file_count = len(self._staged)
         folder_count = len(self._staged_folders)
-        image_count = self._unique_staged_folder_image_count()
+        folder_file_count = self._unique_staged_folder_file_count()
 
         if file_count and folder_count:
             badge = (
@@ -261,7 +261,7 @@ class Api:
         elif folder_count:
             badge = (
                 f"{folder_count} folder{'s' if folder_count != 1 else ''} staged "
-                f"({image_count} image{'s' if image_count != 1 else ''})"
+                f"({folder_file_count} file{'s' if folder_file_count != 1 else ''})"
             )
         else:
             badge = None
@@ -287,8 +287,8 @@ class Api:
             paths.append(path)
 
         for folder in self._staged_folders:
-            for image_path in folder.images:
-                path_obj = Path(image_path)
+            for file_path in folder.files:
+                path_obj = Path(file_path)
                 try:
                     resolved = path_obj.resolve()
                 except OSError:
@@ -296,16 +296,16 @@ class Api:
                 if resolved in seen:
                     continue
                 seen.add(resolved)
-                paths.append(image_path)
+                paths.append(file_path)
 
         return paths
 
-    def _unique_staged_folder_image_count(self) -> int:
+    def _unique_staged_folder_file_count(self) -> int:
         seen: set[Path] = set()
         count = 0
         for folder in self._staged_folders:
-            for image_path in folder.images:
-                path_obj = Path(image_path)
+            for file_path in folder.files:
+                path_obj = Path(file_path)
                 try:
                     resolved = path_obj.resolve()
                 except OSError:
@@ -478,7 +478,7 @@ class Api:
         if not self.window:
             return
         directory = str(self._staged_folders[-1].path if self._staged_folders else
-                        DEFAULT_QUOTE_FOLDER if DEFAULT_QUOTE_FOLDER.exists() else Path.home())
+                        DEFAULT_INPUT_FOLDER if DEFAULT_INPUT_FOLDER.exists() else Path.home())
         result = self.window.create_file_dialog(
             webview.FOLDER_DIALOG,
             allow_multiple=False,
@@ -486,7 +486,7 @@ class Api:
         )
         if not result:
             return
-        self.stage_quote_folder(Path(str(result[0])), replace=replace)
+        self.stage_folder(Path(str(result[0])), replace=replace)
 
     def fetch_url(self, url):
         """Convert a URL or pasted text to markdown."""
@@ -501,7 +501,7 @@ class Api:
             return
         for path in paths:
             if Path(path).is_dir():
-                self.stage_quote_folder(Path(path), replace=False)
+                self.stage_folder(Path(path), replace=False)
             elif Path(path).suffix.lower() in SUPPORTED:
                 if path not in self._staged:
                     self._staged.append(path)
@@ -510,25 +510,25 @@ class Api:
                 self._log(f"Unsupported file: {Path(path).name}", "log-error")
         self._refresh_stage_ui()
 
-    def stage_quote_folder(self, folder: Path, replace: bool = True):
+    def stage_folder(self, folder: Path, replace: bool = True):
         if self._job_running:
             return
-        images = tuple(discover_quote_images(folder))
-        if not images:
-            self._log(f"No supported quote images found in {folder.name}", "log-error")
+        files = tuple(discover_supported_files(folder))
+        if not files:
+            self._log(f"No supported files found in {folder.name}", "log-error")
             return
 
         staged_folder = StagedFolder(
             id=self._next_folder_id(),
             path=folder,
-            image_count=len(images),
-            images=images,
+            file_count=len(files),
+            files=files,
         )
 
         if replace:
             self._staged_folders = [staged_folder]
             self._log(
-                f"Staged folder: {folder.name} ({staged_folder.image_count} image{'s' if staged_folder.image_count != 1 else ''})",
+                f"Staged folder: {folder.name} ({staged_folder.file_count} file{'s' if staged_folder.file_count != 1 else ''})",
                 "log-info",
             )
         else:
@@ -537,7 +537,7 @@ class Api:
             ]
             self._staged_folders.append(staged_folder)
             self._log(
-                f"Added folder: {folder.name} ({staged_folder.image_count} image{'s' if staged_folder.image_count != 1 else ''})",
+                f"Added folder: {folder.name} ({staged_folder.file_count} file{'s' if staged_folder.file_count != 1 else ''})",
                 "log-info",
             )
 
