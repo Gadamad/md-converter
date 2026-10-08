@@ -5,7 +5,7 @@ Refined native Mac utility. Use the system font, generous but practical spacing,
 - Header: product name and Preferences.
 - Source switch: files/folders or pasted text/URL.
 - Files: a compact drop target and a single aligned Add files / Add folder toolbar. Folders can contain any supported formats, including nested files.
-- Workspace: queue and activity tabs; compact saved-collection selector with New/Rename, an autosave indicator, per-item status, and readable filenames with full paths available on hover. Secondary clearing actions live in a menu.
+- Workspace: queue and activity tabs; a visible Saved queues label and a short reopening hint above the named selector, with New/Rename and an autosave indicator. Keep per-item status and readable filenames with full paths on hover. Queue actions distinguishes Clear all items (keeps the name) from Delete queue (removes it). Confirm deletion with the queue name, item count and file-preservation explanation; focus Cancel first. Empty queues remain deletable; deleting the last creates an Inbox.
 - Recovery: interrupted batches offer Resume; failed batches offer Retry failed. Show saved and failed counts.
 - Footer: destination and optional vault delivery; one primary Convert queue action for waiting items and a contextual Retry failed action. During processing, replace conversion with Stop & save.
 - Intake: files, browser links, website shortcuts and pasted text collect without conversion. Text/URL has an explicit Add to queue action; links are fetched on conversion. Queues survive application restarts automatically.

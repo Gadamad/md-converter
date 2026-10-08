@@ -200,6 +200,7 @@ def test_worker_lock_excludes_other_workers_and_ui_mutations(store_type, tmp_pat
                        lambda: other.select_queue(other.active_id),
                        lambda: other.add_items(other.active_id, [text_item("Blocked")]),
                        lambda: other.remove_item(item_id),
+                       lambda: other.delete_queue(other.active_id),
                        lambda: other.clear_queue(other.active_id)]:
             with pytest.raises(RuntimeError):
                 action()
@@ -305,3 +306,65 @@ def test_worker_lock_is_cross_process_and_released_after_process_crash(store_typ
     assert store.get_item(item_id)["status"] == "processing"
     assert store.recover_interrupted() == 1
     assert store.get_item(item_id)["status"] == "waiting"
+
+
+def test_delete_selected_queue_restores_another_and_preserves_files(store, store_type, tmp_path):
+    inbox = store.active_id
+    store.add_items(inbox, [text_item("Keep me")])
+    source, output = tmp_path / "source.txt", tmp_path / "converted.md"
+    source.write_text("Original")
+    output.write_text("Converted")
+    removed = store.create_queue("Remove me")
+    store.add_items(removed, [{"kind": "file", "source": str(source), "title": source.name}])
+    store.update_item(store.items(removed)[0]["id"], status="done", output_path=str(output))
+    store.delete_queue(removed)
+    restored = store_type(store.path).state()
+    assert restored["active_id"] == inbox
+    assert restored["queues"] == [{"id": inbox, "name": "Inbox"}]
+    assert restored["items"][0]["source"] == "Keep me"
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM items WHERE queue_id = ?", (removed,)).fetchone()[0] == 0
+    assert source.read_text() == "Original"
+    assert output.read_text() == "Converted"
+
+
+def test_delete_inactive_queue_keeps_current_selection(store):
+    inbox = store.active_id
+    current = store.create_queue("Current")
+    store.add_items(current, [text_item("Current work")])
+    store.delete_queue(inbox)
+    assert store.active_id == current
+    assert store.state()["total"] == 1
+
+
+@pytest.mark.parametrize("name", ["Inbox", "Renamed inbox"])
+def test_delete_last_queue_creates_empty_inbox(store, store_type, name):
+    removed = store.active_id
+    store.rename_queue(removed, name)
+    store.add_items(removed, [text_item()])
+    store.delete_queue(removed)
+    restored = store_type(store.path).state()
+    assert restored["active_id"] != removed
+    assert restored["queues"] == [{"id": restored["active_id"], "name": "Inbox"}]
+    assert restored["total"] == 0
+
+
+@pytest.mark.parametrize("last_queue", [True, False])
+def test_delete_failure_rolls_back_items_selection_and_collection(store, last_queue):
+    if not last_queue:
+        store.create_queue("Another queue")
+    store.add_items(store.active_id, [text_item("Must survive")])
+    before = store.state()
+    with sqlite3.connect(store.path) as connection:
+        connection.execute("CREATE TRIGGER reject_delete BEFORE DELETE ON queues "
+                           "BEGIN SELECT RAISE(ABORT, 'Cannot delete queue'); END")
+    with pytest.raises(sqlite3.DatabaseError, match="Cannot delete queue"):
+        store.delete_queue(store.active_id)
+    assert store.state() == before
+
+
+def test_delete_missing_queue_preserves_everything(store):
+    before = store.state()
+    with pytest.raises(KeyError):
+        store.delete_queue("missing")
+    assert store.state() == before

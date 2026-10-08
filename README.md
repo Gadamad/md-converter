@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.0 adds automatically saved, named queues for websites, documents, folders and pasted text. Collect sources now, close the app, and convert another day. It retains supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.1 makes saved queues easier to reopen and delete. Collect websites, documents, folders and pasted text now, close the app, and convert another day. It retains supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -105,11 +105,13 @@ That means reinstalling the app no longer removes previous converted files.
 ## GUI Walkthrough
 
 1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Folder scanning includes subfolders and ignores unsupported files.
-2. Choose **Inbox** or create a named queue with **New**. Each addition is saved automatically. Review item statuses in **Queue**; use the queue menu to clear completed items or the whole queue.
+2. Choose a name under **Saved queues** to reopen that queue immediately, or create one with **New**. Each addition is saved automatically. Selecting a queue does not start conversion.
 3. Drag website links or `.webloc` shortcuts into the app, or select **Text or URL**, paste text or one website address per line, and click **Add to queue**. Adding a link does not fetch it; the website is read when conversion starts.
 4. Click **Convert queue** to process waiting items. **Retry failed** processes unsuccessful items only. Successful items remain visible with their saved output paths; they are not converted again.
 5. Use **Stop & save** to retain completed work and leave unfinished items for later. Reopen the app to find the same collection and statuses. Missing sources offer **Locate file**.
 6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
+
+**Queue actions** applies to the selected queue. **Clear completed** removes only finished entries; **Clear all items** empties the queue while keeping its name. **Delete queue…** removes the name and all its entries after a confirmation that names the queue. Original files, converted Markdown and other queues are kept. Deleting the last queue creates a fresh, empty Inbox. Queue deletion cannot be undone.
 
 ### Image recovery
 

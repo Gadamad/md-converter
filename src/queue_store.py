@@ -285,6 +285,27 @@ class QueueStore:
             condition = " AND status = 'done'" if completed_only else ""
             connection.execute("DELETE FROM items WHERE queue_id = ?" + condition, (queue_id,))
 
+    def delete_queue(self, queue_id):
+        """Remove a collection atomically, retaining original files and exports."""
+        with self.worker_lock(), self._connection(write=True) as connection:
+            self._require_queue(connection, queue_id)
+            replacement = connection.execute(
+                "SELECT id FROM queues WHERE id != ? ORDER BY rowid LIMIT 1", (queue_id,)
+            ).fetchone()
+            if replacement is None:
+                # The single settings row must always reference a real queue.
+                # All changes, including a fresh Inbox, commit together.
+                connection.execute("DELETE FROM settings WHERE id = 1")
+            elif self._active_id(connection) == queue_id:
+                connection.execute("UPDATE settings SET active_id = ? WHERE id = 1", (replacement[0],))
+            connection.execute("DELETE FROM items WHERE queue_id = ?", (queue_id,))
+            connection.execute("DELETE FROM queues WHERE id = ?", (queue_id,))
+            if replacement is None:
+                inbox = str(uuid4())
+                connection.execute("INSERT INTO queues (id, name, name_key) VALUES (?, ?, ?)",
+                                   (inbox, "Inbox", "inbox"))
+                connection.execute("INSERT INTO settings (id, active_id) VALUES (1, ?)", (inbox,))
+
     @contextmanager
     def worker_lock(self):
         """Exclude overlapping workers and collection mutations across apps.

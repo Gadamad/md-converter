@@ -118,6 +118,13 @@ class SavedQueueApi:
     def clear_queue(self):
         return self._queue_edit(lambda queue_id: self._queue_store.clear_queue(queue_id))
 
+    def delete_queue(self, queue_id):
+        # The confirmation dialog passes the queue it actually named. Never
+        # substitute a new selection if another window changes it meanwhile.
+        if not isinstance(queue_id, str) or not queue_id:
+            raise ValueError('Choose a saved queue to delete.')
+        return self._queue_edit(lambda target: self._queue_store.delete_queue(target), expected_id=queue_id)
+
     def remove_queue_item(self, item_id):
         return self._queue_edit(lambda _: self._queue_store.remove_item(self._active_item(item_id)['id']))
 

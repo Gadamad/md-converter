@@ -72,6 +72,8 @@ const fs = require('node:fs');
   });
   assert.equal(await page.locator('#convert-btn').isDisabled(),true);
   assert.equal(await page.locator('#queue-save-state').textContent(),'Saved');
+  assert.equal(await page.getByText('Saved queues',{exact:true}).isVisible(),true);
+  assert.equal(await page.getByLabel('Saved queues',{exact:true}).getAttribute('id'),'queue-select');
   await page.locator('#text-tab').click();
   await page.locator('#url-input').fill('https://example.com/one\nhttps://example.com/two');
   assert.equal(await page.locator('#convert-btn').isDisabled(),true,'Unstaged text must not enable conversion');
@@ -169,6 +171,50 @@ const fs = require('node:fs');
   assert.equal(await page.locator('#progress-label').textContent(),'33%','New waiting items must lower idle queue progress');
   await page.evaluate(()=>resetQueue({active_id:'empty',queues:[{id:'empty',name:'Empty'}],items:[],done:0,waiting:0,total:0}));
   assert.equal(await page.locator('#progress-label').textContent(),'0%');
+
+  assert.equal(await page.locator('#queue-actions-btn').isEnabled(),true,'Empty queues can still be deleted');
+  await page.locator('#queue-actions-btn').click();
+  assert.equal(await page.locator('#clear-folders-btn').isDisabled(),true);
+  await page.locator('#delete-queue-btn').click();
+  assert.equal(await page.locator('#queue-delete-title').textContent(),'Delete “Empty”?');
+  assert.match(await page.locator('#queue-delete-copy').textContent(),/empty Inbox/);
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'queue-delete-cancel-btn');
+  await page.locator('#queue-delete-cancel-btn').click();
+  assert.equal(await page.locator('#queue-delete-modal').isVisible(),false);
+  assert.equal(await page.evaluate(()=>window.testCalls.filter(call=>call[0]==='delete_queue').length),0,'Cancel must preserve the queue');
+  await page.waitForFunction(()=>document.activeElement.id==='queue-actions-btn');
+
+  await page.evaluate(()=>{
+   window.pywebview.api={delete_queue:async(id)=>{window.testCalls.push(['delete_queue',id]);throw Error('Storage is read-only');}};
+  });
+  await page.locator('#queue-actions-btn').click();
+  await page.locator('#delete-queue-btn').click();
+  await page.locator('#queue-delete-confirm-btn').click();
+  assert.equal(await page.locator('#queue-delete-error').textContent(),'Storage is read-only');
+  assert.equal(await page.locator('#queue-delete-modal').isVisible(),true,'Failed deletion stays visible with an inline error');
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['delete_queue','empty']);
+  await page.locator('#queue-delete-cancel-btn').press('Escape');
+
+  await page.evaluate(()=>{
+   resetQueue({active_id:'remove',queues:[{id:'remove',name:'<img src=x onerror=alert(1)>'},{id:'keep',name:'Reading list'}]});
+   window.pywebview.api={delete_queue:async(id)=>{window.testCalls.push(['delete_queue',id]);return {...window.testQueue,active_id:'keep',queues:[{id:'keep',name:'Reading list'}]};}};
+  });
+  await page.locator('#queue-actions-btn').click();
+  await page.locator('#delete-queue-btn').click();
+  assert.equal(await page.locator('#queue-delete-modal img').count(),0,'Queue names render safely in confirmation');
+  await page.evaluate(()=>resetQueue({active_id:'keep'}));
+  await page.locator('#queue-delete-confirm-btn').click();
+  await page.waitForFunction(()=>!document.getElementById('queue-delete-modal').open);
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['delete_queue','remove'],'Confirmation retains the ID that was shown');
+  assert.equal(await page.locator('#queue-select').inputValue(),'keep');
+
+  await page.evaluate(()=>{
+   resetQueue({active_id:'one',queues:[{id:'one',name:'Notes'},{id:'two',name:'Websites'}]});
+   window.pywebview.api={select_queue:async(id)=>{window.testCalls.push(['select_queue',id]);return {...window.testQueue,active_id:id,items:[{id:'site',kind:'url',source:'https://example.com',title:'Example website',status:'waiting'}],waiting:1,total:1};}};
+  });
+  await page.getByLabel('Saved queues',{exact:true}).selectOption({label:'Websites'});
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['select_queue','two']);
+  assert.equal(await page.locator('.queue-name').textContent(),'Example website','Choosing a named queue restores its entries');
 
   await page.evaluate(()=>{
    window.largeQueue={active_id:'large',queues:[{id:'large',name:'Large queue'}],items:Array.from({length:5000},(_,i)=>({id:String(i),kind:'file',title:`Document ${i}.pdf`,source:`/tmp/research/Document ${i}.pdf`,group_name:'/tmp/research',status:'waiting'})),waiting:5000,failed:0,done:0,total:5000,busy:false,saved:true};

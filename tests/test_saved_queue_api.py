@@ -118,6 +118,7 @@ def test_corrupt_saved_queues_keep_app_available_without_replacing_database(tmp_
 @pytest.mark.parametrize('method,args', [
     ('create_queue', ('Research',)), ('rename_queue', ('Research',)),
     ('select_queue', ('anything',)), ('clear_queue', ()), ('clear_completed', ()),
+    ('delete_queue', ('anything',)),
     ('stage_text', ('Text',)), ('stage_files', (['/tmp/example.txt'],)),
     ('stage_folder', ('/tmp/example-folder',)), ('stage_drop', ({'text': 'Text'},)),
     ('remove_queue_item', ('anything',)), ('remove_staged_file', ('/tmp/example.txt',)),
@@ -228,3 +229,37 @@ def test_runner_uses_throttled_refresh_but_final_worker_refresh_is_forced():
          mock.patch.object(api, '_queue_changed', wraps=api._queue_changed) as refresh:
         api._queue_worker(queue_id, False)
     assert refresh.call_args_list == [mock.call(force=False), mock.call(force=False), mock.call(force=True)]
+
+
+def test_delete_queue_returns_remaining_selection_and_restores_after_restart():
+    app = load_converter_app()
+    api = app.Api()
+    inbox = api.get_queue_state()['active_id']
+    removed = api.create_queue('Disposable')['active_id']
+    api.stage_text('Sample note')
+    state = api.delete_queue(removed)
+    assert state['active_id'] == inbox and state['total'] == 0
+    assert state['queues'] == [{'id': inbox, 'name': 'Inbox'}]
+    assert app.Api().get_queue_state()['queues'] == state['queues']
+
+
+def test_delete_confirmation_cannot_target_a_new_selection():
+    app = load_converter_app()
+    api = app.Api()
+    confirmed_id = api.get_queue_state()['active_id']
+    api.create_queue('Keep this queue')
+    api.stage_text('Do not remove')
+    with pytest.raises(RuntimeError, match='(?i)selection.*changed'):
+        api.delete_queue(confirmed_id)
+    assert len(api.get_queue_state()['queues']) == 2
+    assert api.get_queue_state()['items'][0]['source'] == 'Do not remove'
+
+
+def test_delete_is_blocked_while_converting():
+    app = load_converter_app()
+    api = app.Api()
+    selected = api.get_queue_state()['active_id']
+    api._job_running = True
+    with pytest.raises(RuntimeError, match='Stop the current conversion'):
+        api.delete_queue(selected)
+    assert api.get_queue_state()['active_id'] == selected
