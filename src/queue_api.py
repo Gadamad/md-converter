@@ -157,7 +157,7 @@ class SavedQueueApi:
             return self.stage_text('\n'.join(normalize_url(value) for value in payload['urls']))
         return self.stage_text(payload.get('text', ''))
 
-    def _folder_files(self, path):
+    def _folder_files(self, path, include_subfolders):
         """Find nested sources and report any directory the scan cannot read."""
         children = []
         scan_failed = False
@@ -170,7 +170,9 @@ class SavedQueueApi:
 
         # Unlike rglob, walk provides an error callback instead of silently
         # hiding unreadable subfolders. Directory links remain unfollowed.
-        for directory, _, filenames in os.walk(path, onerror=report_error):
+        for directory, directories, filenames in os.walk(path, onerror=report_error):
+            if not include_subfolders:
+                directories.clear()
             for name in filenames:
                 child = Path(directory) / name
                 if child.suffix.lower() in extensions and child.is_file():
@@ -180,11 +182,15 @@ class SavedQueueApi:
         return sorted(children)
 
     def _file_entries(self, paths):
+        # A native drop can arrive while the checkbox option is being saved.
+        # Wait for that write, then retain one committed choice for this scan.
+        with self._preferences_lock:
+            include_subfolders = self._preferences.include_subfolders
         entries = []
         for raw in paths:
             path = Path(raw).expanduser().resolve()
             if path.is_dir():
-                children = self._folder_files(path)
+                children = self._folder_files(path, include_subfolders)
                 group = str(path)
             else:
                 children, group = [path], ''

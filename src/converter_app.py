@@ -169,6 +169,7 @@ class Api(SavedQueueApi):
         self._folder_sequence = 0
         self._job_running = False
         self._job_lock = threading.Lock()
+        self._preferences_lock = threading.RLock()
         self._preferences_path = default_preferences_path()
         self._preferences = Preferences.load(self._preferences_path)
         self._supported = SUPPORTED
@@ -238,8 +239,8 @@ class Api(SavedQueueApi):
     def _preferences_payload(self) -> dict[str, object]:
         return self._preferences.to_dict()
 
-    def _save_preferences(self) -> None:
-        self._preferences.save(self._preferences_path)
+    def _save_preferences(self, preferences: Preferences | None = None) -> None:
+        (preferences if preferences is not None else self._preferences).save(self._preferences_path)
 
     def _effective_output_dir(self) -> Path:
         return self._preferences.output_dir or OUTPUT_DIR
@@ -387,12 +388,28 @@ class Api(SavedQueueApi):
         return self._preferences_payload()
 
     def save_preferences(self, payload):
-        data = self._preferences_payload()
-        if isinstance(payload, dict):
-            data.update(payload)
-        self._preferences = Preferences.from_dict(data)
-        self._save_preferences()
-        return self._preferences_payload()
+        with self._preferences_lock:
+            data = self._preferences_payload()
+            if isinstance(payload, dict):
+                data.update(payload)
+            preferences = Preferences.from_dict(data)
+            self._save_preferences(preferences)
+            # Intake threads see only committed immutable preferences, even if
+            # saving fails or a native folder drop arrives during the write.
+            self._preferences = preferences
+            return self._preferences_payload()
+
+    def set_include_subfolders(self, enabled):
+        if not isinstance(enabled, bool):
+            raise ValueError('Include subfolders must be a boolean.')
+        if not self._job_lock.acquire(blocking=False):
+            raise RuntimeError('Cannot change folder options while a conversion is running.')
+        try:
+            if self._job_running:
+                raise RuntimeError('Cannot change folder options while a conversion is running.')
+            return self.save_preferences({'include_subfolders': enabled})
+        finally:
+            self._job_lock.release()
 
     def browse_output_directory(self):
         if not self.window:

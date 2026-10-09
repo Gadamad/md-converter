@@ -33,6 +33,7 @@ h1 { margin:0; font-size:21px; line-height:1.2; letter-spacing:-.5px; font-weigh
 .drop-zone .drop-title { font-size:15px; font-weight:550; } .drop-zone .drop-subtitle { color:var(--muted); font-size:12px; font-weight:400; }
 .drop-symbol { width:26px; height:26px; color:var(--accent); margin-bottom:2px; }
 .input-toolbar { display:flex; gap:8px; align-items:center; margin-top:10px; } .input-hint { margin-left:auto; font-size:12px; color:var(--muted); }
+.folder-choice { margin-left:auto; display:flex; align-items:center; gap:7px; min-height:36px; font-size:12px; color:var(--muted); cursor:pointer; white-space:nowrap; } .folder-choice input { margin:0; flex:none; } .folder-choice:has(input:disabled) { opacity:.46; cursor:default; }
 textarea { display:block; resize:none; width:100%; height:130px; padding:14px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:10px; line-height:1.5; -webkit-user-select:text; user-select:text; }
 textarea::placeholder { color:var(--muted); }
 .operations-shell { flex:1; min-height:170px; display:flex; flex-direction:column; border:1px solid var(--line); border-radius:12px; background:var(--surface); overflow:hidden; }
@@ -104,7 +105,8 @@ textarea::placeholder { color:var(--muted); }
  <div class="source-heading"><div class="segmented" role="tablist" aria-label="Source"><button id="files-tab" role="tab" aria-selected="true" aria-controls="files-source">Files & folders</button><button id="text-tab" role="tab" aria-selected="false" aria-controls="text-source" tabindex="-1">Text or URL</button></div><span class="local-note"><svg><use href="#i-check"/></svg>File conversion stays on your Mac</span></div>
  <div id="files-source" role="tabpanel" aria-labelledby="files-tab">
   <button id="drop-zone" class="drop-zone" aria-label="Drop files, links or text here, or browse files"><svg class="drop-symbol"><use href="#i-file"/></svg><span class="drop-title">Drop something worth keeping</span><span class="drop-subtitle">Files, folders, website links & text</span></button>
-  <div class="input-toolbar"><button id="add-files-btn"><svg><use href="#i-plus"/></svg>Add files</button><button id="add-folder-btn"><svg><use href="#i-folder"/></svg>Add folder</button><span class="input-hint">Includes supported files in subfolders</span></div>
+  <div class="input-toolbar"><button id="add-files-btn"><svg><use href="#i-plus"/></svg>Add files</button><button id="add-folder-btn"><svg><use href="#i-folder"/></svg>Add folder</button><label class="folder-choice" title="Checked: include nested folders. Unchecked: only files directly in the chosen folder."><input id="include-subfolders-cb" type="checkbox" checked aria-label="Include subfolders" aria-describedby="folder-choice-help">Include subfolders</label></div>
+  <span id="folder-choice-help" class="visually-hidden">Applies when adding or dropping folders. Checked includes nested folders; unchecked includes only files directly in the chosen folder. Existing queued items stay unchanged.</span>
  </div>
  <div id="text-source" role="tabpanel" aria-labelledby="text-tab" hidden><label for="url-input" class="visually-hidden">Text or website URLs to add to the queue</label><textarea id="url-input" placeholder="Paste text, or website URLs on separate lines…" spellcheck="false" aria-describedby="text-intake-help"></textarea><div class="input-toolbar text-toolbar"><span id="text-intake-help" class="input-hint">Pages are fetched when you convert the queue.</span><button id="add-text-btn" disabled><svg><use href="#i-plus"/></svg>Add to queue</button></div></div>
 </section>
@@ -145,11 +147,11 @@ textarea::placeholder { color:var(--muted); }
 const $ = id => document.getElementById(id);
 let busy = false, canStop = false, queued = 0, sourceMode = 'files', workspaceMode = 'queue';
 let queueState = {active_id:null,queues:[],items:[],waiting:0,failed:0,done:0,total:0,saved:false};
-let queueReady = false, queueMutationPending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
+let queueReady = false, queueMutationPending = false, folderPreferencePending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
 let queueDeleteId = null, queueDeleteReturnFocus = null;
 const QUEUE_PAGE_SIZE = 200;
 let queuePage = 0;
-let savedPreferences = {theme:'system',raw_ocr_mode:'different',output_dir:null,auto_open_output:false};
+let savedPreferences = {theme:'system',raw_ocr_mode:'different',output_dir:null,auto_open_output:false,include_subfolders:true};
 let applicationState = {}, toastTimer;
 const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 4500); }
@@ -160,12 +162,13 @@ async function callApi(name, ...args) {
 function icon(name) { const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); const use = document.createElementNS(svg.namespaceURI,'use'); use.setAttribute('href','#i-'+name); svg.appendChild(use); svg.setAttribute('aria-hidden','true'); return svg; }
 function queueUnavailable() { return queueReady && !queueState.active_id && queueState.saved === false; }
 function updateActions() {
- const locked = busy || queueMutationPending, unavailable = queueUnavailable();
+ const locked = busy || queueMutationPending || folderPreferencePending, unavailable = queueUnavailable();
  $('convert-btn').disabled = locked || unavailable || !queued;
  $('convert-btn').title = queued ? `Convert ${queued} waiting ${queued === 1 ? 'item' : 'items'}` : 'Add items to the queue to convert';
  $('convert-btn').hidden = busy && canStop; $('abort-btn').hidden = !(busy && canStop);
  for (const id of ['files-tab','text-tab','preferences-btn','change-output-btn','vault-cb']) $(id).disabled = locked;
- for (const id of ['add-files-btn','add-folder-btn','drop-zone','url-input']) $(id).disabled = locked || unavailable;
+ for (const id of ['add-files-btn','add-folder-btn','include-subfolders-cb','drop-zone','url-input']) $(id).disabled = locked || unavailable;
+ $('include-subfolders-cb').disabled = locked || unavailable || !queueReady;
  if (!applicationState.vault_configured) $('vault-cb').disabled = true;
  $('add-text-btn').disabled = locked || unavailable || !$('url-input').value.trim();
  $('queue-select').disabled = $('new-queue-btn').disabled = locked || unavailable || !queueReady;
@@ -263,7 +266,7 @@ function renderSavedQueue(state) {
  updateActions();
 }
 async function mutateQueue(name,...args) {
- if (busy || queueMutationPending || queueUnavailable()) return false;
+ if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return false;
  const focused = document.activeElement, focusedRow = focused?.closest('#folder-queue .queue-row');
  const rowIndex = focusedRow ? [...$('folder-queue').children].indexOf(focusedRow) : -1;
  const restoreRowFocus = rowIndex >= 0 && focused.tagName === 'BUTTON';
@@ -336,7 +339,7 @@ function renderRecoveryJobs(jobs) {
  updateActions();
 }
 function renderApplicationState(state) { applicationState = state; $('destination-path').textContent = state.output_dir || 'Default output folder'; $('destination-path').title = state.output_dir || ''; $('app-version').textContent = 'MD Converter '+(state.version || ''); $('vault-option').title = state.vault_configured ? 'Also save a copy in your configured vault' : 'No Obsidian vault configured'; $('vault-setting').hidden = !state.vault_configured; if (!state.vault_configured) $('vault-cb').checked = false; renderRecoveryJobs(state.recovery_jobs || []); if (state.queue) renderSavedQueue(state.queue); updateActions(); }
-function applyPreferences(prefs) { savedPreferences = {...prefs}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); }
+function applyPreferences(prefs) { savedPreferences = {...prefs,include_subfolders:prefs.include_subfolders !== false}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); $('include-subfolders-cb').checked = savedPreferences.include_subfolders; }
 function openPreferences() { applyPreferences(savedPreferences); $('preferences-modal').showModal(); }
 function closePreferences() { $('preferences-modal').close(); applyPreferences(savedPreferences); }
 $('preferences-btn').onclick = openPreferences; $('change-output-btn').onclick = openPreferences;
@@ -354,6 +357,14 @@ $('queue-tab').onclick = () => showWorkspace('queue'); $('activity-tab').onclick
 $('queue-prev-btn').onclick = () => changeQueuePage(-1); $('queue-next-btn').onclick = () => changeQueuePage(1);
 $('drop-zone').onclick = $('add-files-btn').onclick = async () => { if (await mutateQueue('browse_files')) showWorkspace('queue'); };
 $('add-folder-btn').onclick = async () => { if (await mutateQueue('add_folder')) showWorkspace('queue'); };
+$('include-subfolders-cb').onchange = async () => {
+ if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) { $('include-subfolders-cb').checked = savedPreferences.include_subfolders; return; }
+ const include = $('include-subfolders-cb').checked;
+ folderPreferencePending = true; updateActions();
+ try { if (!window.pywebview) throw Error('The app is not connected yet. Please try again.'); applyPreferences(await pywebview.api.set_include_subfolders(include)); }
+ catch(error) { $('include-subfolders-cb').checked = savedPreferences.include_subfolders; toast('Could not save folder choice: '+(error.message || String(error))); }
+ finally { folderPreferencePending = false; updateActions(); }
+};
 $('clear-folders-btn').onclick = () => { closeQueueActions(); mutateQueue('clear_queue'); };
 $('clear-completed-btn').onclick = () => { closeQueueActions(); mutateQueue('clear_completed'); };
 $('queue-actions-btn').onclick = openQueueActions;
@@ -382,7 +393,7 @@ $('queue-name-form').onsubmit = async event => { event.preventDefault(); const n
 $('url-input').oninput = updateActions;
 $('add-text-btn').onclick = async () => { const text = $('url-input').value.trim(); if (!text) return; const state = await mutateQueue('stage_text',text); if (state) { $('url-input').value = ''; showWorkspace('queue'); } updateActions(); };
 async function startQueueConversion(retry=false) {
- if (busy || queueMutationPending || (retry ? !queueState.failed : !queued)) return;
+ if (busy || queueMutationPending || folderPreferencePending || (retry ? !queueState.failed : !queued)) return;
  setBusy(true); setProgress(0); setSummary(retry ? 'Preparing failed items…' : 'Preparing your conversion…'); showLogPanel();
  const started = await callApi(retry ? 'retry_failed' : 'convert_staged');
  if (started !== true) { setBusy(false); setSummary('Conversion did not start. Your queue is unchanged.'); }
@@ -393,7 +404,7 @@ $('open-btn').onclick = () => callApi('open_output'); $('vault-btn').onclick = (
 $('copy-btn').onclick = async () => { if (await callApi('copy_to_clipboard',$('log').innerText) !== false) toast('Activity copied'); };
 document.addEventListener('dragover',event => event.preventDefault());
 document.addEventListener('drop',async event => {
- event.preventDefault(); if (busy || queueMutationPending || document.querySelector('dialog[open]')) return;
+ event.preventDefault(); if (busy || queueMutationPending || folderPreferencePending || document.querySelector('dialog[open]')) return;
  const transfer = event.dataTransfer; if (!transfer) return;
  // Native Cocoa handles file drops. WKWebView may report Files before exposing the file list.
  if (transfer.files.length || [...transfer.items].some(item => item.kind === 'file') || [...transfer.types].includes('Files')) return;
@@ -402,11 +413,11 @@ document.addEventListener('drop',async event => {
  if (!urls.length && !text.trim()) return;
  if (await mutateQueue('stage_drop',{text,urls,files:[]})) showWorkspace('queue');
 });
-$('drop-zone').addEventListener('dragover',()=>{ if (!busy) $('drop-zone').classList.add('drag-over'); });
+$('drop-zone').addEventListener('dragover',()=>{ if (!$('drop-zone').disabled) $('drop-zone').classList.add('drag-over'); });
 for (const event of ['dragleave','drop']) $('drop-zone').addEventListener(event,()=> $('drop-zone').classList.remove('drag-over'));
 // File paths arrive through the native Cocoa drop handler.
 document.querySelectorAll('[role="tablist"]').forEach(list => list.addEventListener('keydown',event=>{ if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return; event.preventDefault(); const tabs=[...list.querySelectorAll('[role="tab"]')]; const index=tabs.indexOf(document.activeElement); const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length; if (!tabs[next].disabled) { tabs[next].focus(); tabs[next].click(); } }));
-document.addEventListener('keydown',event=>{ if (!event.metaKey || document.querySelector('dialog[open]')) return; if (event.key==='o' && !busy && !queueMutationPending) { event.preventDefault(); $('add-files-btn').click(); } if (event.key==='Enter' && !$('convert-btn').disabled) { event.preventDefault(); $('convert-btn').click(); } if (event.key==='w') { event.preventDefault(); callApi('close_window'); } });
+document.addEventListener('keydown',event=>{ if (!event.metaKey || document.querySelector('dialog[open]')) return; if (event.key==='o' && !$('add-files-btn').disabled) { event.preventDefault(); $('add-files-btn').click(); } if (event.key==='Enter' && !$('convert-btn').disabled) { event.preventDefault(); $('convert-btn').click(); } if (event.key==='w') { event.preventDefault(); callApi('close_window'); } });
 themeMedia.addEventListener('change',()=>{ if (savedPreferences.theme==='system' && !$('preferences-modal').open) applyPreferences(savedPreferences); });
 window.addEventListener('pywebviewready',async()=>{ try { applyPreferences(await pywebview.api.get_preferences()); renderApplicationState(await pywebview.api.get_application_state()); if (!queueReady) { const state = await callApi('get_queue_state'); if (state) renderSavedQueue(state); } } catch(error) { toast('Could not load app settings: '+error); } });
 applyPreferences(savedPreferences); updateActions();

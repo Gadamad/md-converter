@@ -16,6 +16,7 @@ RAW_OCR_MODE_CHOICES: Final[tuple[RawOcrMode, ...]] = ("different", "always", "n
 DEFAULT_THEME: Final[ThemeMode] = "system"
 DEFAULT_RAW_OCR_MODE: Final[RawOcrMode] = "different"
 DEFAULT_AUTO_OPEN_OUTPUT: Final[bool] = False
+DEFAULT_INCLUDE_SUBFOLDERS: Final[bool] = True
 _APP_SUPPORT_DIR_NAME: Final[str] = "MD Converter"
 _PREFERENCES_FILENAME: Final[str] = "preferences.json"
 
@@ -68,12 +69,15 @@ class Preferences:
     raw_ocr_mode: RawOcrMode = DEFAULT_RAW_OCR_MODE
     output_dir: Path | None = None
     auto_open_output: bool = DEFAULT_AUTO_OPEN_OUTPUT
+    include_subfolders: bool = DEFAULT_INCLUDE_SUBFOLDERS
 
     def __post_init__(self) -> None:
         if self.theme not in THEME_CHOICES:
             raise ValueError(f"Invalid theme: {self.theme}")
         if self.raw_ocr_mode not in RAW_OCR_MODE_CHOICES:
             raise ValueError(f"Invalid raw OCR mode: {self.raw_ocr_mode}")
+        if not isinstance(self.include_subfolders, bool):
+            raise ValueError('Include subfolders must be a boolean.')
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -81,6 +85,7 @@ class Preferences:
             "raw_ocr_mode": self.raw_ocr_mode,
             "output_dir": str(self.output_dir) if self.output_dir is not None else None,
             "auto_open_output": self.auto_open_output,
+            "include_subfolders": self.include_subfolders,
         }
 
     @classmethod
@@ -90,6 +95,8 @@ class Preferences:
             raw_ocr_mode=_parse_raw_ocr_mode(data.get("raw_ocr_mode", DEFAULT_RAW_OCR_MODE)),
             output_dir=_parse_output_dir(data.get("output_dir")),
             auto_open_output=_parse_auto_open_output(data.get("auto_open_output", DEFAULT_AUTO_OPEN_OUTPUT)),
+            include_subfolders=(data['include_subfolders'] if isinstance(data.get('include_subfolders'), bool)
+                                else DEFAULT_INCLUDE_SUBFOLDERS),
         )
 
     def save(self, path: Path) -> None:

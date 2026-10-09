@@ -28,6 +28,9 @@ class PreferencesDefaultsTests(unittest.TestCase):
         prefs = Preferences()
         self.assertFalse(prefs.auto_open_output)
 
+    def test_default_includes_subfolders(self):
+        self.assertTrue(Preferences().include_subfolders)
+
 
 class PreferencesValidationTests(unittest.TestCase):
     def test_invalid_theme_raises_value_error(self):
@@ -38,6 +41,11 @@ class PreferencesValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Preferences(raw_ocr_mode="sometimes")
 
+    def test_include_subfolders_requires_a_boolean(self):
+        for invalid in (0, 1, None, 'false'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                Preferences(include_subfolders=invalid)
+
 
 class PreferencesSerializationTests(unittest.TestCase):
     def test_to_dict_contains_expected_keys(self):
@@ -45,7 +53,7 @@ class PreferencesSerializationTests(unittest.TestCase):
         data = prefs.to_dict()
         self.assertEqual(
             set(data.keys()),
-            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output"},
+            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders"},
         )
 
     def test_round_trip_preserves_values(self):
@@ -54,6 +62,7 @@ class PreferencesSerializationTests(unittest.TestCase):
             raw_ocr_mode="never",
             output_dir=Path("/tmp/output"),
             auto_open_output=True,
+            include_subfolders=False,
         )
         restored = Preferences.from_dict(original.to_dict())
         self.assertEqual(restored, original)
@@ -66,6 +75,13 @@ class PreferencesSerializationTests(unittest.TestCase):
         prefs = Preferences.from_dict({})
         self.assertEqual(prefs, Preferences())
 
+    def test_invalid_include_subfolders_defaults_true_without_losing_other_preferences(self):
+        for invalid in (0, 1, None, 'false', [], {}):
+            with self.subTest(invalid=invalid):
+                prefs = Preferences.from_dict({'include_subfolders': invalid, 'theme': 'dark'})
+                self.assertTrue(prefs.include_subfolders)
+                self.assertEqual(prefs.theme, 'dark')
+
 
 class PreferencesStoreTests(unittest.TestCase):
     def test_save_then_load_round_trip(self):
@@ -76,6 +92,7 @@ class PreferencesStoreTests(unittest.TestCase):
                 raw_ocr_mode="always",
                 output_dir=Path(temp_dir) / "exports",
                 auto_open_output=True,
+                include_subfolders=False,
             )
             original.save(path)
             loaded = Preferences.load(path)
@@ -113,6 +130,7 @@ class PreferencesStoreTests(unittest.TestCase):
         self.assertEqual(prefs.raw_ocr_mode, "never")
         self.assertEqual(prefs.output_dir, Path("/tmp/export"))
         self.assertTrue(prefs.auto_open_output)
+        self.assertTrue(prefs.include_subfolders)
 
     def test_load_string_false_does_not_enable_auto_open_output(self):
         with tempfile.TemporaryDirectory() as temp_dir:

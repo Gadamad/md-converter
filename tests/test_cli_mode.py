@@ -31,6 +31,7 @@ def load_converter_app(config_text=None, frozen=False, home_path: Path | None = 
         raw_ocr_mode: str = "different"
         output_dir: Path | None = None
         auto_open_output: bool = False
+        include_subfolders: bool = True
 
         def to_dict(self) -> dict[str, object]:
             return {
@@ -38,6 +39,7 @@ def load_converter_app(config_text=None, frozen=False, home_path: Path | None = 
                 "raw_ocr_mode": self.raw_ocr_mode,
                 "output_dir": str(self.output_dir) if self.output_dir is not None else None,
                 "auto_open_output": self.auto_open_output,
+                "include_subfolders": self.include_subfolders,
             }
 
         def save(self, path: Path) -> None:
@@ -52,6 +54,8 @@ def load_converter_app(config_text=None, frozen=False, home_path: Path | None = 
                 raw_ocr_mode=str(data.get("raw_ocr_mode", "different")),
                 output_dir=Path(output_dir) if output_dir else None,
                 auto_open_output=bool(data.get("auto_open_output", False)),
+                include_subfolders=(data['include_subfolders'] if isinstance(data.get('include_subfolders'), bool)
+                                    else True),
             )
 
         @classmethod
