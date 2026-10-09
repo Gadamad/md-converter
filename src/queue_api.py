@@ -1,5 +1,6 @@
 """Saved collection operations exposed by the desktop application."""
 import json
+import os
 from pathlib import Path
 import sqlite3
 import threading
@@ -156,21 +157,44 @@ class SavedQueueApi:
             return self.stage_text('\n'.join(normalize_url(value) for value in payload['urls']))
         return self.stage_text(payload.get('text', ''))
 
+    def _folder_files(self, path):
+        """Find nested sources and report any directory the scan cannot read."""
+        children = []
+        scan_failed = False
+        extensions = self._supported | {'.webloc'}
+
+        def report_error(error):
+            nonlocal scan_failed
+            scan_failed = True
+            self._log(f'Could not read folder {error.filename or path}: {error.strerror or error}', 'log-error')
+
+        # Unlike rglob, walk provides an error callback instead of silently
+        # hiding unreadable subfolders. Directory links remain unfollowed.
+        for directory, _, filenames in os.walk(path, onerror=report_error):
+            for name in filenames:
+                child = Path(directory) / name
+                if child.suffix.lower() in extensions and child.is_file():
+                    children.append(child)
+        if not children and not scan_failed:
+            self._log(f'No supported files found in {path}', 'log-error')
+        return sorted(children)
+
     def _file_entries(self, paths):
         entries = []
         for raw in paths:
             path = Path(raw).expanduser().resolve()
             if path.is_dir():
-                children = sorted(p for p in path.rglob('*') if p.is_file()
-                                  and p.suffix.lower() in self._supported | {'.webloc'})
-                if not children:
-                    self._log(f'No supported files found in {path.name}', 'log-error')
+                children = self._folder_files(path)
                 group = str(path)
             else:
                 children, group = [path], ''
             for child in children:
                 if child.suffix.lower() == '.webloc':
-                    url = read_webloc(child)
+                    try:
+                        url = read_webloc(child)
+                    except ValueError as exc:
+                        self._log(f'Could not add website shortcut {child}: {exc}', 'log-error')
+                        continue
                     entries.append(dict(kind='url', source=url, title=child.stem, group_name=group))
                 elif child.suffix.lower() in self._supported:
                     entries.append(dict(kind='file', source=str(child), title=child.name, group_name=group))

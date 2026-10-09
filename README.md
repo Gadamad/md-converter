@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.2 puts **Delete queue…** beside **New** and **Rename**, so removing an unwanted saved queue is easy to find. Collect websites, documents, folders and pasted text now, close the app, and convert another day. It retains supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.3 strengthens subfolder scanning: unreadable folders are reported, and a broken website shortcut no longer blocks neighboring files. Collect websites, documents, folders and pasted text now, close the app, and convert another day. It retains named saved queues, visible queue deletion, supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -104,7 +104,7 @@ That means reinstalling the app no longer removes previous converted files.
 
 ## GUI Walkthrough
 
-1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Folder scanning includes subfolders and ignores unsupported files.
+1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Folder scanning includes nested subfolders and ignores unsupported files. Unreadable subfolders and broken website shortcuts are reported with their full paths in **Activity**; readable sources continue to be collected.
 2. Choose a name under **Saved queues** to reopen that queue immediately, or create one with **New**. Each addition is saved automatically. Selecting a queue does not start conversion.
 3. Drag website links or `.webloc` shortcuts into the app, or select **Text or URL**, paste text or one website address per line, and click **Add to queue**. Adding a link does not fetch it; the website is read when conversion starts.
 4. Click **Convert queue** to process waiting items. **Retry failed** processes unsuccessful items only. Successful items remain visible with their saved output paths; they are not converted again.
