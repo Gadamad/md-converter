@@ -46,6 +46,7 @@ textarea::placeholder { color:var(--muted); }
 .queue-toolbar { display:flex; flex-direction:column; gap:7px; padding:10px 12px; border-bottom:1px solid var(--line); }
 .queue-picker-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; } .queue-picker-heading label { font-size:12px; font-weight:600; } .queue-picker-heading span { font-size:11px; color:var(--muted); }
 .queue-picker-controls { display:flex; align-items:center; gap:6px; }
+.queue-picker-controls .delete-saved-queue { color:var(--danger); } .queue-picker-controls .delete-saved-queue:hover:not(:disabled) { background:var(--danger-soft); }
 .queue-toolbar select { min-width:100px; max-width:280px; flex:1; height:32px; font-size:12px; background:var(--surface); }
 .save-state { margin-left:auto; color:var(--muted); font-size:11px; white-space:nowrap; } .save-state.unsaved { color:var(--danger); }
 .queue-status { font-size:11px; color:var(--muted); white-space:nowrap; } .queue-status.done { color:var(--accent); } .queue-status.failed { color:var(--danger); } .queue-status.processing { color:var(--accent); }
@@ -110,7 +111,7 @@ textarea::placeholder { color:var(--muted); }
 
 <section class="operations-shell" aria-label="Conversion workspace">
  <div class="workspace-toolbar"><div class="workspace-tabs" role="tablist" aria-label="Workspace"><button id="queue-tab" role="tab" aria-selected="true" aria-controls="queue-panel">Queue <span id="queue-count" class="count">0</span></button><button id="activity-tab" role="tab" aria-selected="false" aria-controls="log-container" tabindex="-1">Activity <span id="activity-alert" class="count" hidden>!</span></button></div><div id="queue-pagination" class="queue-pagination" role="group" aria-label="Queue pages" hidden><button id="queue-prev-btn" class="quiet" aria-label="Previous queue page">‹</button><span id="queue-page-range" role="status" aria-live="polite"></span><button id="queue-next-btn" class="quiet" aria-label="Next queue page">›</button></div><button id="queue-actions-btn" class="quiet small" aria-haspopup="menu" aria-controls="queue-actions-menu" aria-expanded="false" disabled>Queue actions</button><button id="copy-btn" class="quiet small" hidden>Copy log</button></div>
- <div id="queue-toolbar" class="queue-toolbar"><div class="queue-picker-heading"><label for="queue-select">Saved queues</label><span id="queue-select-hint">Choose a name to reopen it.</span></div><div class="queue-picker-controls"><select id="queue-select" aria-describedby="queue-select-hint" disabled><option>Loading queue…</option></select><button id="new-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>New</button><button id="rename-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>Rename</button><span id="queue-save-state" class="save-state" role="status" aria-live="polite">Loading…</span></div></div>
+ <div id="queue-toolbar" class="queue-toolbar"><div class="queue-picker-heading"><label for="queue-select">Saved queues</label><span id="queue-select-hint">Choose a name to reopen it.</span></div><div class="queue-picker-controls"><select id="queue-select" aria-describedby="queue-select-hint" disabled><option>Loading queue…</option></select><button id="new-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>New</button><button id="rename-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>Rename</button><button id="delete-saved-queue-btn" class="quiet small delete-saved-queue" aria-haspopup="dialog" aria-controls="queue-delete-modal" disabled>Delete queue…</button><span id="queue-save-state" class="save-state" role="status" aria-live="polite">Loading…</span></div></div>
  <div class="operations-panel">
   <section id="recovery-panel" class="recovery" aria-labelledby="recovery-title" hidden><h2 id="recovery-title" class="recovery-heading">Continue where you left off</h2><div id="recovery-jobs"></div></section>
   <div id="queue-panel" role="tabpanel" aria-labelledby="queue-tab"><div id="folder-queue"></div><div id="queue-empty" class="queue-empty"><strong id="queue-empty-title">A little order for your next idea.</strong><p id="queue-empty-copy">Add files, links or text, then convert when you’re ready.</p></div></div>
@@ -145,7 +146,7 @@ const $ = id => document.getElementById(id);
 let busy = false, canStop = false, queued = 0, sourceMode = 'files', workspaceMode = 'queue';
 let queueState = {active_id:null,queues:[],items:[],waiting:0,failed:0,done:0,total:0,saved:false};
 let queueReady = false, queueMutationPending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
-let queueDeleteId = null;
+let queueDeleteId = null, queueDeleteReturnFocus = null;
 const QUEUE_PAGE_SIZE = 200;
 let queuePage = 0;
 let savedPreferences = {theme:'system',raw_ocr_mode:'different',output_dir:null,auto_open_output:false};
@@ -170,7 +171,7 @@ function updateActions() {
  $('queue-select').disabled = $('new-queue-btn').disabled = locked || unavailable || !queueReady;
  $('rename-queue-btn').disabled = locked || !queueState.active_id;
  $('queue-actions-btn').disabled = locked || !(queueReady ? queueState.active_id : queued);
- $('delete-queue-btn').disabled = locked || !queueState.active_id;
+ $('delete-queue-btn').disabled = $('delete-saved-queue-btn').disabled = locked || !queueState.active_id;
  $('queue-delete-confirm-btn').disabled = locked || !queueDeleteId;
  $('queue-delete-cancel-btn').disabled = queueMutationPending;
  $('clear-folders-btn').disabled = locked || !(queueReady ? queueState.total : queued);
@@ -280,10 +281,12 @@ async function mutateQueue(name,...args) {
  }
 }
 function closeQueueActions(restoreFocus=false) { $('queue-actions-menu').hidden = true; $('queue-actions-btn').setAttribute('aria-expanded','false'); if (restoreFocus) $('queue-actions-btn').focus(); }
-function openDeleteQueue() {
+function openDeleteQueue(event) {
  if (busy || queueMutationPending) return;
  const queue = queueState.queues.find(queue => queue.id === queueState.active_id);
  if (!queue) return;
+ const trigger = event?.currentTarget;
+ queueDeleteReturnFocus = trigger?.closest('#queue-actions-menu') ? $('queue-actions-btn') : trigger || $('delete-saved-queue-btn');
  closeQueueActions(); queueDeleteId = queue.id;
  $('queue-delete-title').textContent = `Delete “${queue.name}”?`;
  $('queue-delete-copy').textContent = `This removes the saved queue and its ${queueState.total || 0} ${(queueState.total || 0) === 1 ? 'item' : 'items'}. Original files and converted Markdown are kept. This cannot be undone.`+(queueState.queues.length === 1 ? ' A new, empty Inbox will be created.' : ' Your other queues are kept.');
@@ -355,9 +358,10 @@ $('clear-folders-btn').onclick = () => { closeQueueActions(); mutateQueue('clear
 $('clear-completed-btn').onclick = () => { closeQueueActions(); mutateQueue('clear_completed'); };
 $('queue-actions-btn').onclick = openQueueActions;
 $('delete-queue-btn').onclick = openDeleteQueue;
+$('delete-saved-queue-btn').onclick = openDeleteQueue;
 $('queue-delete-cancel-btn').onclick = () => $('queue-delete-modal').close();
 $('queue-delete-modal').addEventListener('cancel',event => { if (queueMutationPending) event.preventDefault(); });
-$('queue-delete-modal').addEventListener('close',()=>{ queueDeleteId = null; updateActions(); $('queue-actions-btn').focus(); });
+$('queue-delete-modal').addEventListener('close',()=>{ queueDeleteId = null; updateActions(); if (queueDeleteReturnFocus?.isConnected && !queueDeleteReturnFocus.disabled) queueDeleteReturnFocus.focus(); });
 $('queue-delete-confirm-btn').onclick = async () => { if (!queueDeleteId) return; const state = await mutateQueue('delete_queue',queueDeleteId); if (state) { $('queue-delete-modal').close(); toast('Queue deleted. Original files and converted Markdown kept.'); } };
 $('queue-actions-menu').addEventListener('keydown',event => {
  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeQueueActions(true); return; }

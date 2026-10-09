@@ -74,6 +74,16 @@ const fs = require('node:fs');
   assert.equal(await page.locator('#queue-save-state').textContent(),'Saved');
   assert.equal(await page.getByText('Saved queues',{exact:true}).isVisible(),true);
   assert.equal(await page.getByLabel('Saved queues',{exact:true}).getAttribute('id'),'queue-select');
+  assert.equal(await page.locator('#delete-saved-queue-btn').isVisible(),true,'Whole-queue deletion must be visible beside the queue name');
+  assert.equal(await page.locator('#delete-saved-queue-btn').isEnabled(),true,'An empty queue must be deletable');
+  // Safari does not focus buttons on mouse clicks. Preserve the opening
+  // control even when document.activeElement is still the page body.
+  await page.evaluate(()=>document.getElementById('delete-saved-queue-btn').click());
+  assert.equal(await page.locator('#queue-delete-title').textContent(),'Delete “Inbox”?');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'queue-delete-cancel-btn');
+  await page.locator('#queue-delete-cancel-btn').click();
+  await page.waitForFunction(()=>document.activeElement.id==='delete-saved-queue-btn');
+  assert.equal(await page.evaluate(()=>window.testCalls.length),0,'Opening and canceling the confirmation must not remove anything');
   await page.locator('#text-tab').click();
   await page.locator('#url-input').fill('https://example.com/one\nhttps://example.com/two');
   assert.equal(await page.locator('#convert-btn').isDisabled(),true,'Unstaged text must not enable conversion');
@@ -137,6 +147,7 @@ const fs = require('node:fs');
   assert.equal(await page.locator('.folder-remove-btn').first().isDisabled(),true);
   assert.equal(await page.locator('.queue-locate-btn').isDisabled(),true);
   assert.equal(await page.locator('#queue-select').isDisabled(),true);
+  assert.equal(await page.locator('#delete-saved-queue-btn').isDisabled(),true);
   await page.evaluate(()=>resetQueue({busy:false}));
 
   await page.locator('#queue-actions-btn').click();
@@ -159,7 +170,7 @@ const fs = require('node:fs');
   });
   assert.equal(await page.locator('#queue-empty-title').textContent(),'Saved queues need attention');
   assert.equal(await page.locator('#queue-empty-copy').textContent(),'Could not open saved queues: storage is read-only.');
-  for(const id of ['add-files-btn','add-folder-btn','drop-zone','url-input','add-text-btn','new-queue-btn','queue-select','convert-btn']) assert.equal(await page.locator('#'+id).isDisabled(),true,id+' must not offer unavailable queue intake');
+  for(const id of ['add-files-btn','add-folder-btn','drop-zone','url-input','add-text-btn','new-queue-btn','queue-select','delete-saved-queue-btn','convert-btn']) assert.equal(await page.locator('#'+id).isDisabled(),true,id+' must not offer unavailable queue intake');
   assert.equal(await page.locator('#preferences-btn').isEnabled(),true);
   assert.equal(await page.locator('.recovery-row button').isEnabled(),true,'Legacy recovery stays available');
   await page.evaluate(()=>{resetQueue({saved:false,save_error:'The last edit could not be saved'});renderRecoveryJobs([]);});
@@ -238,6 +249,8 @@ const fs = require('node:fs');
   await page.locator('#queue-tab').click();
   const toolbarBounds=await page.evaluate(()=>{const toolbar=document.querySelector('.workspace-toolbar').getBoundingClientRect();return [...document.querySelectorAll('.workspace-toolbar > :not([hidden])')].map(element=>({left:element.getBoundingClientRect().left,right:element.getBoundingClientRect().right,top:element.getBoundingClientRect().top,bottom:element.getBoundingClientRect().bottom,toolbarLeft:toolbar.left,toolbarRight:toolbar.right,toolbarTop:toolbar.top,toolbarBottom:toolbar.bottom}));});
   for(const bounds of toolbarBounds) {assert.ok(bounds.left>=bounds.toolbarLeft && bounds.right<=bounds.toolbarRight,'Pagination must fit the minimum-width toolbar');assert.ok(bounds.top>=bounds.toolbarTop && bounds.bottom<=bounds.toolbarBottom,'Pagination must not wrap outside the toolbar');}
+  const pickerBounds=await page.evaluate(()=>{const controls=document.querySelector('.queue-picker-controls').getBoundingClientRect();return [...document.querySelectorAll('.queue-picker-controls > *')].map(element=>({left:element.getBoundingClientRect().left,right:element.getBoundingClientRect().right,top:element.getBoundingClientRect().top,bottom:element.getBoundingClientRect().bottom,controlsLeft:controls.left,controlsRight:controls.right,controlsTop:controls.top,controlsBottom:controls.bottom}));});
+  for(const bounds of pickerBounds) {assert.ok(bounds.left>=bounds.controlsLeft && bounds.right<=bounds.controlsRight,'Saved queue controls must fit the minimum-width toolbar');assert.ok(bounds.top>=bounds.controlsTop && bounds.bottom<=bounds.controlsBottom,'Saved queue controls must stay aligned');}
   await page.evaluate(()=>renderSavedQueue({...window.largeQueue,active_id:'other',queues:[{id:'other',name:'Other'}]}));
   assert.equal(await page.locator('#folder-queue .queue-row').first().getAttribute('data-item-id'),'0','Switching queues resets pagination');
   await page.evaluate(()=>renderSavedQueue({...window.largeQueue,items:window.largeQueue.items.slice(0,200),total:200,waiting:200}));
