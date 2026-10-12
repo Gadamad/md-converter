@@ -153,6 +153,7 @@ def test_worker_serializes_typed_failure_and_details(tmp_path):
     payload = json.loads(destination.read_text())
     assert payload['code'] == 'no_text'
     assert payload['error_type'] == 'OcrNoTextDetected'
+    assert payload['error'] == 'Nothing recognized'
     assert payload['diagnostics'] == [detail]
 
 

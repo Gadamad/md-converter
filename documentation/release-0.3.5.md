@@ -9,3 +9,5 @@ Retry progress now counts the selected attempts instead of their positions in th
 Successful image records are reused when retrying or repairing an export. Regression checks cover backend deadlines and cancellation, subsequent Vision attempts, OCR classifications, selected-item progress, skip/report recovery after partial write failures, successful-result preservation and minimum-window browser behavior.
 
 Validation: 394 tests and 14 subtests pass. Five existing PyMuPDF deprecation warnings remain. Real-image checks recovered a previously timed-out quote using Vision and correctly rejected texture in a text-free snow photograph; the added Tesseract layouts retain confidence diagnostics for rejected candidates.
+
+Native Mac checks covered review classification, attention filtering, a single-image retry with a 1 / 1 total, and safe skipping beside a successful document. Temporary verification data was removed. Recovery using the packaged OCR workers retained all prior successful records and completed queue entries in an existing large batch and recovered every selected quote image. Original sources and preferences were verified unchanged.

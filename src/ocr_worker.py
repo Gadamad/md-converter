@@ -35,7 +35,7 @@ def main(args=None) -> int:
     except Exception as exc:
         details = getattr(exc, "diagnostics", None) or [
             _failure_detail(engine, "backend", started, "error", exc)]
-        payload = {"error": f"{type(exc).__name__}: {exc}",
+        payload = {"error": str(exc),
                    "code": getattr(exc, "code", "processing_error"),
                    "error_type": type(exc).__name__, "diagnostics": details}
     write_payload(payload)
