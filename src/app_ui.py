@@ -74,19 +74,25 @@ textarea::placeholder { color:var(--muted); }
 #summary { font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--muted); } #progress-label { font-size:11px; font-variant-numeric:tabular-nums; color:var(--muted); }
 .progress-track { margin:0 16px 13px; height:4px; border-radius:8px; overflow:hidden; background:var(--soft); flex:none; } #progress { width:0; height:100%; background:var(--accent); transition:width .18s; border-radius:8px; }
 .destination { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; margin:0 0 12px; } .destination svg { width:15px; height:15px; } #destination-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; } .destination button { padding:0 3px; min-height:24px; font-size:12px; color:var(--accent); }
+.copy-destination { display:flex; align-items:center; gap:9px; min-height:26px; margin:-6px 0 9px; font-size:12px; color:var(--muted); }
+.copy-destination label { display:flex; align-items:center; gap:7px; white-space:nowrap; cursor:pointer; } .copy-destination input { margin:0; flex:none; }
+#copy-destination-path { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; } #copy-destination-path.error { color:var(--danger); }
+#copy-folder-change-btn { min-height:24px; padding:0 3px; font-size:12px; color:var(--accent); }
 .action-row > button { min-height:42px; } .action-row { display:flex; align-items:center; gap:8px; } .vault-option { margin-right:auto; display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); } input[type="checkbox"] { width:15px; height:15px; accent-color:var(--accent); }
 #badge { display:none; } .visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 #preferences-modal { width:min(530px,calc(100vw - 48px)); border:1px solid var(--line); border-radius:16px; padding:0; color:var(--ink); background:var(--surface); box-shadow:var(--shadow); max-height:90vh; }
 #preferences-modal::backdrop { background:#10181377; backdrop-filter:blur(4px); } .modal-header { display:flex; justify-content:space-between; align-items:center; padding:20px 22px; border-bottom:1px solid var(--line); } h2 { margin:0; font-size:18px; letter-spacing:-.3px; }
-#queue-name-modal, #queue-delete-modal { width:min(410px,calc(100vw - 48px)); border:1px solid var(--line); border-radius:16px; padding:0; color:var(--ink); background:var(--surface); box-shadow:var(--shadow); max-height:90vh; }
-#queue-name-modal::backdrop, #queue-delete-modal::backdrop { background:#10181377; backdrop-filter:blur(4px); } #queue-name-modal .modal-body, #queue-delete-modal .modal-body { padding:20px 22px; }
+#queue-name-modal, #queue-delete-modal, #copy-folder-modal { width:min(410px,calc(100vw - 48px)); border:1px solid var(--line); border-radius:16px; padding:0; color:var(--ink); background:var(--surface); box-shadow:var(--shadow); max-height:90vh; }
+#queue-name-modal::backdrop, #queue-delete-modal::backdrop, #copy-folder-modal::backdrop { background:#10181377; backdrop-filter:blur(4px); } #queue-name-modal .modal-body, #queue-delete-modal .modal-body, #copy-folder-modal .modal-body { padding:20px 22px; }
 #queue-delete-title { overflow-wrap:anywhere; } #queue-delete-copy { margin:0; color:var(--muted); font-size:13px; line-height:1.6; } #queue-delete-modal .modal-footer button { min-height:36px; }
-#queue-name-modal label { display:block; font-size:13px; font-weight:550; margin-bottom:7px; } #queue-name-input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); -webkit-user-select:text; user-select:text; }
-#queue-name-error, #queue-delete-error { color:var(--danger); font-size:12px; margin:9px 0 0; overflow-wrap:anywhere; }
+#queue-name-modal label, #copy-folder-modal label { display:block; font-size:13px; font-weight:550; margin-bottom:7px; } #queue-name-input, #copy-folder-input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); -webkit-user-select:text; user-select:text; }
+#queue-name-error, #queue-delete-error, #copy-folder-error { color:var(--danger); font-size:12px; margin:9px 0 0; overflow-wrap:anywhere; }
+#copy-folder-help { color:var(--muted); font-size:12px; line-height:1.5; margin:12px 0 0; } #copy-folder-preview { color:var(--muted); font-size:11px; overflow-wrap:anywhere; margin:7px 0 0; }
 .modal-body { padding:4px 22px; } .setting { padding:17px 0; border-bottom:1px solid var(--line); } .setting:last-child { border:0; } .setting-top { display:flex; align-items:center; justify-content:space-between; gap:20px; } .setting label { font-weight:550; font-size:13px; } .setting p { font-size:12px; color:var(--muted); margin:5px 0 0; } select { color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; padding:7px; max-width:235px; } .path-row { display:flex; gap:8px; align-items:center; margin-top:10px; } .path-value { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .modal-footer { display:flex; gap:8px; justify-content:flex-end; align-items:center; padding:16px 22px; background:var(--bg); border-top:1px solid var(--line); } .version { margin-right:auto; color:var(--muted); font-size:11px; } .modal-footer .primary { min-width:80px; min-height:36px; }
 #toast { position:fixed; bottom:88px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:9px; font-size:13px; box-shadow:var(--shadow); max-width:85%; z-index:5; }
 @media(max-height:730px) { .app { padding-top:18px; gap:12px; } .drop-zone { min-height:94px; padding:10px; } .bottom { padding-bottom:16px; }  textarea { height:110px; } }
+@media(max-height:700px) { .app { gap:10px; } .source-heading { margin-bottom:8px; } .drop-zone { min-height:72px; padding:8px; } .drop-symbol { display:none; } textarea { height:76px; } .workspace-toolbar { min-height:42px; } .queue-toolbar { padding-top:8px; padding-bottom:8px; } .bottom { padding-bottom:12px; } }
 @media(max-width:680px) { .app { padding-left:20px; padding-right:20px; } .local-note { display:none; } .input-hint { font-size:11px; } .action-row { gap:6px; flex-wrap:wrap; } .vault-option { font-size:11px; } button.primary { min-width:130px; } .queue-row { gap:9px; padding:11px 12px; } .queue-item-actions { flex-direction:column; align-items:flex-end; gap:0; } .queue-toolbar select { max-width:none; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
 </style>
@@ -127,10 +133,12 @@ textarea::placeholder { color:var(--muted); }
 </section>
 <footer class="bottom">
  <div class="destination"><svg><use href="#i-folder"/></svg><span>Save to</span><span id="destination-path">Default output folder</span><button id="change-output-btn" class="quiet">Change…</button></div>
+ <div class="copy-destination"><label><input id="copy-subfolder-cb" type="checkbox" aria-describedby="copy-destination-path">Save to a named folder</label><span id="copy-destination-path">Extra copy of finished Markdown</span><button id="copy-folder-change-btn" class="quiet" aria-haspopup="dialog" hidden>Change name…</button></div>
  <div class="action-row"><label class="vault-option" id="vault-option"><input id="vault-cb" type="checkbox" VAULT_CHECKED>Copy to Obsidian vault</label><button id="open-btn"><svg><use href="#i-folder"/></svg>Open output</button><button id="retry-failed-btn" hidden>Retry failed</button><button id="convert-btn" class="primary" disabled>Convert queue<svg><use href="#i-arrow"/></svg></button><button id="abort-btn" class="danger" hidden>Stop & save</button></div>
  <span id="badge"></span>
 </footer>
 </main>
+<dialog id="copy-folder-modal" aria-labelledby="copy-folder-title"><form id="copy-folder-form"><div class="modal-header"><h2 id="copy-folder-title">Name your copy folder</h2></div><div class="modal-body"><label for="copy-folder-input">Folder name</label><input id="copy-folder-input" type="text" required autocomplete="off" autofocus aria-describedby="copy-folder-help copy-folder-preview copy-folder-error"><p id="copy-folder-help">Finished Markdown will also be copied into this folder inside Save to. Your regular exports stay in place.</p><p id="copy-folder-preview"></p><p id="copy-folder-error" role="alert" hidden></p></div><div class="modal-footer"><button id="copy-folder-cancel-btn" type="button">Cancel</button><button id="copy-folder-save-btn" type="submit" class="primary">Use folder</button></div></form></dialog>
 <div id="queue-actions-menu" class="queue-actions-menu" role="menu" aria-label="Queue actions" hidden><button id="clear-completed-btn" class="quiet small" role="menuitem" disabled>Clear completed</button><button id="clear-folders-btn" class="quiet small" role="menuitem" disabled>Clear all items</button><button id="delete-queue-btn" class="quiet small" role="menuitem" aria-haspopup="dialog" disabled>Delete queue…</button></div>
 <dialog id="queue-delete-modal" aria-labelledby="queue-delete-title" aria-describedby="queue-delete-copy"><div class="modal-header"><h2 id="queue-delete-title">Delete queue?</h2></div><div class="modal-body"><p id="queue-delete-copy"></p><p id="queue-delete-error" role="alert" hidden></p></div><div class="modal-footer"><button id="queue-delete-cancel-btn" autofocus>Cancel</button><button id="queue-delete-confirm-btn" class="danger">Delete queue</button></div></dialog>
 <dialog id="queue-name-modal" aria-labelledby="queue-name-title"><form id="queue-name-form"><div class="modal-header"><h2 id="queue-name-title">New queue</h2></div><div class="modal-body"><label for="queue-name-input">Queue name</label><input id="queue-name-input" type="text" maxlength="120" required autocomplete="off" autofocus aria-describedby="queue-name-error"><p id="queue-name-error" role="alert" hidden></p></div><div class="modal-footer"><button id="queue-name-cancel-btn" type="button">Cancel</button><button id="queue-name-save-btn" type="submit" class="primary">Create queue</button></div></form></dialog>
@@ -154,9 +162,10 @@ let queueState = {active_id:null,queues:[],items:[],waiting:0,failed:0,done:0,to
 let queueAttentionOnly = false;
 let queueReady = false, queueMutationPending = false, folderPreferencePending = false, displayPreferencePending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
 let queueDeleteId = null, queueDeleteReturnFocus = null;
+let copyPreferencePending = false, copyFolderReturnFocus = null, lastCopySubfolder = '';
 const QUEUE_PAGE_SIZE = 200;
 let queuePage = 0;
-let savedPreferences = {theme:'system',raw_ocr_mode:'different',output_dir:null,auto_open_output:false,include_subfolders:true,show_source_details:false};
+let savedPreferences = {theme:'system',raw_ocr_mode:'different',output_dir:null,auto_open_output:false,include_subfolders:true,show_source_details:false,copy_subfolder:null};
 let applicationState = {}, toastTimer;
 const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 4500); }
@@ -167,7 +176,7 @@ async function callApi(name, ...args) {
 function icon(name) { const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); const use = document.createElementNS(svg.namespaceURI,'use'); use.setAttribute('href','#i-'+name); svg.appendChild(use); svg.setAttribute('aria-hidden','true'); return svg; }
 function queueUnavailable() { return queueReady && !queueState.active_id && queueState.saved === false; }
 function updateActions() {
- const locked = busy || queueMutationPending || folderPreferencePending || displayPreferencePending, unavailable = queueUnavailable();
+ const locked = busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending, unavailable = queueUnavailable();
  $('convert-btn').disabled = locked || unavailable || !queued;
  $('convert-btn').title = queued ? `Convert ${queued} waiting ${queued === 1 ? 'item' : 'items'}` : 'Add items to the queue to convert';
  $('convert-btn').hidden = busy && canStop; $('abort-btn').hidden = !(busy && canStop);
@@ -175,6 +184,11 @@ function updateActions() {
  for (const id of ['add-files-btn','add-folder-btn','include-subfolders-cb','drop-zone','url-input']) $(id).disabled = locked || unavailable;
  $('include-subfolders-cb').disabled = locked || unavailable || !queueReady;
  $('show-source-details-cb').disabled = locked || displayPreferencePending || !queueReady;
+ $('copy-subfolder-cb').disabled = locked;
+ $('copy-folder-change-btn').disabled = locked || !savedPreferences.copy_subfolder;
+ $('copy-folder-save-btn').disabled = locked || !$('copy-folder-input').value.trim();
+ $('copy-folder-input').disabled = busy || copyPreferencePending;
+ $('copy-folder-cancel-btn').disabled = copyPreferencePending;
  if (!applicationState.vault_configured) $('vault-cb').disabled = true;
  $('add-text-btn').disabled = locked || unavailable || !$('url-input').value.trim();
  $('queue-select').disabled = $('new-queue-btn').disabled = locked || unavailable || !queueReady;
@@ -218,11 +232,11 @@ function renderQueuePagination() {
  const count = visibleQueueItems().length, start = queuePage * QUEUE_PAGE_SIZE;
  $('queue-pagination').hidden = workspaceMode !== 'queue' || count <= QUEUE_PAGE_SIZE;
  $('queue-page-range').textContent = `${(count ? start+1 : 0).toLocaleString()}–${Math.min(start+QUEUE_PAGE_SIZE,count).toLocaleString()} of ${count.toLocaleString()}`;
- $('queue-prev-btn').disabled = busy || queueMutationPending || folderPreferencePending || queuePage === 0;
- $('queue-next-btn').disabled = busy || queueMutationPending || folderPreferencePending || start+QUEUE_PAGE_SIZE >= count;
+ $('queue-prev-btn').disabled = busy || queueMutationPending || folderPreferencePending || copyPreferencePending || queuePage === 0;
+ $('queue-next-btn').disabled = busy || queueMutationPending || folderPreferencePending || copyPreferencePending || start+QUEUE_PAGE_SIZE >= count;
 }
 function changeQueuePage(delta) {
- if (busy || queueMutationPending || folderPreferencePending) return;
+ if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending) return;
  queuePage = Math.max(0,Math.min(queuePage+delta,Math.ceil(visibleQueueItems().length/QUEUE_PAGE_SIZE)-1));
  renderSavedQueue(queueState); document.querySelector('.operations-panel').scrollTop = 0;
 }
@@ -285,7 +299,7 @@ function renderSavedQueue(state) {
  updateActions();
 }
 async function mutateQueue(name,...args) {
- if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return false;
+ if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || queueUnavailable()) return false;
  const focused = document.activeElement, focusedRow = focused?.closest('#folder-queue .queue-row');
  const rowIndex = focusedRow ? [...$('folder-queue').children].indexOf(focusedRow) : -1;
  const restoreRowFocus = rowIndex >= 0 && focused.tagName === 'BUTTON';
@@ -357,13 +371,50 @@ function renderRecoveryJobs(jobs) {
  }
  updateActions();
 }
-function renderApplicationState(state) { applicationState = state; $('destination-path').textContent = state.output_dir || 'Default output folder'; $('destination-path').title = state.output_dir || ''; $('app-version').textContent = 'MD Converter '+(state.version || ''); $('vault-option').title = state.vault_configured ? 'Also save a copy in your configured vault' : 'No Obsidian vault configured'; $('vault-setting').hidden = !state.vault_configured; if (!state.vault_configured) $('vault-cb').checked = false; renderRecoveryJobs(state.recovery_jobs || []); if (state.queue) renderSavedQueue(state.queue); updateActions(); }
-function applyPreferences(prefs) { savedPreferences = {...prefs,include_subfolders:prefs.include_subfolders !== false,show_source_details:prefs.show_source_details === true}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); $('include-subfolders-cb').checked = savedPreferences.include_subfolders; $('show-source-details-cb').checked = savedPreferences.show_source_details; document.querySelectorAll('#folder-queue .queue-row').forEach(row=>row.classList.toggle('compact',!savedPreferences.show_source_details)); }
+function renderApplicationState(state) { applicationState = state; $('destination-path').textContent = state.output_dir || 'Default output folder'; $('destination-path').title = state.output_dir || ''; $('app-version').textContent = 'MD Converter '+(state.version || ''); $('vault-option').title = state.vault_configured ? 'Also save a copy in your configured vault' : 'No Obsidian vault configured'; $('vault-setting').hidden = !state.vault_configured; if (!state.vault_configured) $('vault-cb').checked = false; renderRecoveryJobs(state.recovery_jobs || []); if (state.queue) renderSavedQueue(state.queue); renderCopyDestination(); updateActions(); }
+function applyPreferences(prefs) { const previousCopy = savedPreferences.copy_subfolder; savedPreferences = {...prefs,include_subfolders:prefs.include_subfolders !== false,show_source_details:prefs.show_source_details === true,copy_subfolder:typeof prefs.copy_subfolder === 'string' ? prefs.copy_subfolder : null}; if (savedPreferences.copy_subfolder) lastCopySubfolder = savedPreferences.copy_subfolder; if (previousCopy !== savedPreferences.copy_subfolder) applicationState = {...applicationState,copy_dir:null,copy_error:''}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); $('include-subfolders-cb').checked = savedPreferences.include_subfolders; $('show-source-details-cb').checked = savedPreferences.show_source_details; document.querySelectorAll('#folder-queue .queue-row').forEach(row=>row.classList.toggle('compact',!savedPreferences.show_source_details)); renderCopyDestination(); }
+function copyPathPreview(name) { const base = applicationState.output_dir || savedPreferences.output_dir; return base && name ? base.replace(/\/$/,'')+'/'+name : 'Extra copy inside the Save to folder'; }
+function renderCopyDestination() {
+ const name = savedPreferences.copy_subfolder, error = name && applicationState.copy_error;
+ $('copy-subfolder-cb').checked = Boolean(name); $('copy-folder-change-btn').hidden = !name;
+ const path = $('copy-destination-path'); path.textContent = error || (name ? applicationState.copy_dir || copyPathPreview(name) : 'Extra copy of finished Markdown'); path.title = path.textContent; path.classList.toggle('error',Boolean(error));
+}
+function openCopyFolder(control) {
+ if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) { renderCopyDestination(); return; }
+ copyFolderReturnFocus = control || $('copy-subfolder-cb');
+ let suggestion = queueState.queues.find(queue => queue.id === queueState.active_id)?.name || '';
+ if (['quotes','pdf','docx','spreadsheets','html','txt','rtf'].includes(suggestion.toLowerCase())) suggestion += ' exports';
+ $('copy-folder-input').value = savedPreferences.copy_subfolder || lastCopySubfolder || suggestion;
+ $('copy-folder-error').hidden = true; $('copy-folder-error').textContent = '';
+ $('copy-folder-preview').textContent = copyPathPreview($('copy-folder-input').value.trim());
+ renderCopyDestination(); updateActions(); $('copy-folder-modal').showModal(); $('copy-folder-input').focus(); $('copy-folder-input').select();
+}
+async function saveCopySubfolder(name) {
+ if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) { renderCopyDestination(); return false; }
+ copyPreferencePending = true; updateActions();
+ try {
+  if (!window.pywebview) throw Error('The app is not connected yet. Please try again.');
+  const prefs = await pywebview.api.set_copy_subfolder(name); applyPreferences(prefs);
+  const state = await callApi('get_application_state'); if (state && typeof state === 'object') renderApplicationState(state);
+  return true;
+ } catch(error) {
+  const message = error.message || String(error); renderCopyDestination(); toast('Could not save copy folder: '+message);
+  if ($('copy-folder-modal').open) { $('copy-folder-error').textContent = message; $('copy-folder-error').hidden = false; }
+  return false;
+ } finally { copyPreferencePending = false; updateActions(); }
+}
 function openPreferences() { applyPreferences(savedPreferences); $('preferences-modal').showModal(); }
 function closePreferences() { $('preferences-modal').close(); applyPreferences(savedPreferences); }
 $('preferences-btn').onclick = openPreferences; $('change-output-btn').onclick = openPreferences;
 $('preferences-close-btn').onclick = closePreferences; $('preferences-cancel-btn').onclick = closePreferences;
 $('preferences-modal').addEventListener('cancel',()=>applyPreferences(savedPreferences));
+$('copy-subfolder-cb').onchange = () => { const enable = $('copy-subfolder-cb').checked; if (enable) openCopyFolder($('copy-subfolder-cb')); else saveCopySubfolder(null); };
+$('copy-folder-change-btn').onclick = () => openCopyFolder($('copy-folder-change-btn'));
+$('copy-folder-input').oninput = () => { $('copy-folder-preview').textContent = copyPathPreview($('copy-folder-input').value.trim()); updateActions(); };
+$('copy-folder-cancel-btn').onclick = () => $('copy-folder-modal').close();
+$('copy-folder-modal').addEventListener('cancel',event=>{ if (copyPreferencePending) event.preventDefault(); });
+$('copy-folder-modal').addEventListener('close',()=>{ renderCopyDestination(); if (copyFolderReturnFocus?.isConnected && !copyFolderReturnFocus.disabled) copyFolderReturnFocus.focus(); });
+$('copy-folder-form').onsubmit = async event => { event.preventDefault(); const name = $('copy-folder-input').value.trim(); if (name && await saveCopySubfolder(name)) $('copy-folder-modal').close(); };
 $('theme-select').onchange = () => document.body.dataset.theme = $('theme-select').value === 'system' ? (themeMedia.matches ? 'dark' : 'light') : $('theme-select').value;
 $('output-dir-browse-btn').onclick = async () => { const selected = await callApi('browse_output_directory'); if (selected) { $('output-dir-value').textContent = selected; $('output-dir-value').title = selected; } };
 $('output-dir-reset-btn').onclick = () => { $('output-dir-value').textContent = 'Default output folder'; };
@@ -377,7 +428,7 @@ $('queue-prev-btn').onclick = () => changeQueuePage(-1); $('queue-next-btn').onc
 $('drop-zone').onclick = $('add-files-btn').onclick = async () => { if (await mutateQueue('browse_files')) showWorkspace('queue'); };
 $('add-folder-btn').onclick = async () => { if (await mutateQueue('add_folder')) showWorkspace('queue'); };
 $('include-subfolders-cb').onchange = async () => {
- if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) { $('include-subfolders-cb').checked = savedPreferences.include_subfolders; return; }
+ if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || queueUnavailable()) { $('include-subfolders-cb').checked = savedPreferences.include_subfolders; return; }
  const include = $('include-subfolders-cb').checked;
  folderPreferencePending = true; updateActions();
  try { if (!window.pywebview) throw Error('The app is not connected yet. Please try again.'); applyPreferences(await pywebview.api.set_include_subfolders(include)); }
@@ -405,7 +456,7 @@ document.addEventListener('pointerdown',event => { if (!$('queue-actions-menu').
 window.addEventListener('resize',()=>closeQueueActions());
 $('new-queue-btn').onclick = () => openQueueName('create'); $('rename-queue-btn').onclick = () => openQueueName('rename');
 $('queue-select').onchange = async () => { const id = $('queue-select').value; if (!await mutateQueue('select_queue',id)) $('queue-select').value = queueState.active_id || ''; };
-$('queue-attention-btn').onclick = () => { if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return; queueAttentionOnly = !queueAttentionOnly; queuePage = 0; renderSavedQueue(queueState); document.querySelector('.operations-panel').scrollTop = 0; };
+$('queue-attention-btn').onclick = () => { if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || queueUnavailable()) return; queueAttentionOnly = !queueAttentionOnly; queuePage = 0; renderSavedQueue(queueState); document.querySelector('.operations-panel').scrollTop = 0; };
 $('show-source-details-cb').onchange = async () => {
  if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending) { $('show-source-details-cb').checked = savedPreferences.show_source_details; return; }
  const show = $('show-source-details-cb').checked;
@@ -421,13 +472,13 @@ $('queue-name-form').onsubmit = async event => { event.preventDefault(); const n
 $('url-input').oninput = updateActions;
 $('add-text-btn').onclick = async () => { const text = $('url-input').value.trim(); if (!text) return; const state = await mutateQueue('stage_text',text); if (state) { $('url-input').value = ''; showWorkspace('queue'); } updateActions(); };
 async function startQueueConversion(retry=false) {
- if (busy || queueMutationPending || folderPreferencePending || (retry ? !queueState.failed : !queued)) return;
+ if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || (retry ? !queueState.failed : !queued)) return;
  setBusy(true); setProgress(0); setSummary(retry ? 'Preparing failed items…' : 'Preparing your conversion…'); showLogPanel();
  const started = await callApi(retry ? 'retry_failed' : 'convert_staged');
  if (started !== true) { setBusy(false); setSummary('Conversion did not start. Your queue is unchanged.'); }
 }
 async function startItemRetry(id) {
- if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return;
+ if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || queueUnavailable()) return;
  setBusy(true); setProgress(0); setSummary('Preparing this item…'); showLogPanel();
  const started = await callApi('retry_queue_item',id);
  if (started !== true) { setBusy(false); setSummary('Retry did not start. Your queue is unchanged.'); }
@@ -438,7 +489,7 @@ $('open-btn').onclick = () => callApi('open_output'); $('vault-btn').onclick = (
 $('copy-btn').onclick = async () => { if (await callApi('copy_to_clipboard',$('log').innerText) !== false) toast('Activity copied'); };
 document.addEventListener('dragover',event => event.preventDefault());
 document.addEventListener('drop',async event => {
- event.preventDefault(); if (busy || queueMutationPending || folderPreferencePending || document.querySelector('dialog[open]')) return;
+ event.preventDefault(); if (busy || queueMutationPending || folderPreferencePending || copyPreferencePending || document.querySelector('dialog[open]')) return;
  const transfer = event.dataTransfer; if (!transfer) return;
  // Native Cocoa handles file drops. WKWebView may report Files before exposing the file list.
  if (transfer.files.length || [...transfer.items].some(item => item.kind === 'file') || [...transfer.types].includes('Files')) return;

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from file_utils import atomic_write_text, reserve_output_path
+from output_copy import deliver_output_copies, validate_copy_manifest
 from quote_markdown import render_quote_batch_markdown
 from quote_parser import QuoteRecord
 
@@ -118,6 +119,7 @@ class QuoteCheckpoint:
         instance.report = data
         instance.raw_ocr_mode = data['raw_ocr_mode']
         instance.report['notices'] = data.get('notices', [])
+        instance._copy_directory()
         instance.refresh()
         return instance
 
@@ -174,9 +176,11 @@ class QuoteCheckpoint:
             raise ValueError('This image does not belong to the saved batch')
         if item['status'] != 'failed' or item['records'] or item.get('previous_records'):
             raise ValueError('Only unsuccessful images without saved text can be skipped')
-        if item.get('skipped') and not self.report.get('export_pending'):
+        if (item.get('skipped') and not self.report.get('export_pending')
+                and not self.report.get('copy_pending')):
             return
         self._vault_export_paths()  # Validate saved destinations before changing the item.
+        self._copy_directory()
         item['skipped'] = True
         self.refresh()
         status = ('canceled' if any(row['status'] == 'pending' for row in self.items)
@@ -195,8 +199,34 @@ class QuoteCheckpoint:
             paths.append(Path(directory) / filename)
         return paths
 
+    def _copy_directory(self):
+        """Validate optional delivery metadata without touching its destination."""
+        directory = self.report.get('copy_dir')
+        exports = self.report.get('copy_exports', {})
+        pending = self.report.get('copy_pending', False)
+        if not isinstance(exports, dict) or not isinstance(pending, bool):
+            raise ValueError('Invalid additional-copy delivery metadata')
+        if directory is None:
+            if exports or pending:
+                raise ValueError('Additional-copy delivery is missing its destination')
+            return None
+        if not isinstance(directory, str):
+            raise ValueError('Invalid additional-copy destination')
+        copy_dir = Path(directory)
+        validate_copy_manifest(base_dir=self.path.parent.parent, copy_dir=copy_dir, manifest=self.report)
+        # The delivery manifest retains the same absolute spelling passed to
+        # save, including OS parent aliases such as /var versus /private/var.
+        if any(source != str(self.path) for source in exports):
+            raise ValueError('Additional quote copies must reference this report\'s Markdown output')
+        return copy_dir
+
+    def _persist_report(self):
+        atomic_write_text(self.report_path, json.dumps(self.report, indent=2) + '\n')
+
     def save(self, status: str, current_image=None, *, sync_vault_exports=False):
         self.refresh()
+        copy_dir = self._copy_directory()
+        copy_recovery_pending = bool(copy_dir is not None and self.report.get('export_pending'))
         # A skipped item and an unfinished export identify a skip interrupted
         # while replacing either the local Markdown or one of its vault copies.
         sync_vault_exports = sync_vault_exports or (self.report.get('export_pending')
@@ -205,7 +235,7 @@ class QuoteCheckpoint:
         self.report.update(status=status, current_image=current_image, export_pending=True)
         # Commit the journal first. A crash before Markdown replacement is repaired
         # by rendering saved records on the next resume, without repeating OCR.
-        atomic_write_text(self.report_path, json.dumps(self.report, indent=2) + '\n')
+        self._persist_report()
         verified_indices = set()
         offset = 0
         for item in self.items:
@@ -235,10 +265,22 @@ class QuoteCheckpoint:
             pending_directory = (Path(self.report['vault_pending']) / 'quotes').resolve()
             if any(path.parent.resolve() == pending_directory for path in vault_paths):
                 self.report['vault_pending'] = None
+        if copy_dir is not None and status in ('completed', 'completed_with_errors', 'canceled'):
+            # Persist the extracted text and primary Markdown before touching an
+            # optional destination. Delivery failures remain resumable exports.
+            self.report['copy_pending'] = True
+            self._persist_report()
+            try:
+                deliver_output_copies([self.path], base_dir=self.path.parent.parent,
+                                      copy_dir=copy_dir, manifest=self.report, persist=self._persist_report)
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise OSError(f'Image text is saved; additional copy failed: {exc}') from exc
         # Recovery writes a temporary "running" report before its final state.
-        # Keep the marker until that final report also reaches every vault copy.
-        self.report['export_pending'] = bool(sync_vault_exports and status == 'running')
-        atomic_write_text(self.report_path, json.dumps(self.report, indent=2) + '\n')
+        # Keep the marker until that final report reaches every pending copy.
+        self.report['export_pending'] = bool(self.report.get('copy_pending') or
+                                             (status == 'running' and
+                                              (sync_vault_exports or copy_recovery_pending)))
+        self._persist_report()
 
 
 def recovery_checkpoints(output_dir: Path):
@@ -246,7 +288,8 @@ def recovery_checkpoints(output_dir: Path):
     for path in candidates:
         try:
             checkpoint = QuoteCheckpoint.load(path)
-            if checkpoint.report['status'] != 'completed' or checkpoint.report.get('export_pending') or checkpoint.report.get('vault_pending'):
+            if (checkpoint.report['status'] != 'completed' or checkpoint.report.get('export_pending')
+                    or checkpoint.report.get('vault_pending') or checkpoint.report.get('copy_pending')):
                 yield checkpoint
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             continue
@@ -256,7 +299,8 @@ def matching_checkpoint(output_dir: Path, paths: list[str], raw_ocr_mode: str):
     expected = canonical_paths(paths)
     for checkpoint in recovery_checkpoints(output_dir):
         if ((any(item['status'] == 'pending' for item in checkpoint.items)
-                or checkpoint.report.get('export_pending') or checkpoint.report.get('vault_pending') or checkpoint.report['status'] == 'running')
+                or checkpoint.report.get('export_pending') or checkpoint.report.get('vault_pending')
+                or checkpoint.report.get('copy_pending') or checkpoint.report['status'] == 'running')
                 and checkpoint.raw_ocr_mode == raw_ocr_mode
                 and canonical_paths(item['path'] for item in checkpoint.items) == expected):
             return checkpoint

@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.6 checks suspicious OCR punctuation and character runs before accepting quote text. It tries alternate readings and sends unresolved text to **Needs review** while continuing the batch. Hungarian accents and other languages are preserved; text is never repaired by stripping diacritics. Queues now use compact rows, with a dashboard **Show source details** checkbox for full URLs and file paths. **Open** on completed files shows the original; completed links and pasted text open their saved Markdown. Named queues, image recovery and the subfolder choice remain available. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.7 adds **Save to a named folder** on the dashboard. Tick it, enter a folder name and keep an extra copy of finished Markdown inside the current Save to location. Regular outputs remain saved. Copy retries reuse saved conversions and preserve existing destination files. Suspicious OCR checks, Hungarian accents, compact queues, source details, Open actions and image recovery remain available. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -110,6 +110,10 @@ That means reinstalling the app no longer removes previous converted files.
 4. Click **Convert queue** to process waiting items. **Retry failed** retries conversion errors; images where both OCR engines found no text instead need your review. Successful items remain visible with their saved output paths; they are not converted again.
 5. Use **Stop & save** to retain completed work and leave unfinished items for later. Reopen the app to find the same collection and statuses. Missing sources offer **Locate file**.
 6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
+
+Tick **Save to a named folder** on the dashboard to request an extra copy, then enter a folder name in the dialog. Its full destination is shown before saving. The app remembers this choice; **Change name** selects another name and unticking disables copies for new work. The named folder sits directly inside the current **Save to** location and keeps the same format and workbook subfolders as the regular output. Hungarian accents are preserved. Existing files and edited copies receive collision-safe filenames instead of being overwritten.
+
+If the extra copy fails, the normal output and recognized image text stay saved. **Retry failed** completes delivery from those saved results. Work that has already started retains its original output and copy destinations, even if the dashboard choice changes later. Existing completed items are not copied retroactively.
 
 Select a saved queue, then use **Delete queue…** beside **New** and **Rename** to remove its name and all its entries after confirmation. The same action remains under **Queue actions**. **Clear completed** removes only finished entries; **Clear all items** empties the queue while keeping its name. Original files, converted Markdown and other queues are kept. Deleting the last queue creates a fresh, empty Inbox. Queue deletion cannot be undone.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -19,6 +20,32 @@ DEFAULT_AUTO_OPEN_OUTPUT: Final[bool] = False
 DEFAULT_INCLUDE_SUBFOLDERS: Final[bool] = True
 _APP_SUPPORT_DIR_NAME: Final[str] = "MD Converter"
 _PREFERENCES_FILENAME: Final[str] = "preferences.json"
+_PRIMARY_OUTPUT_FOLDERS: Final[frozenset[str]] = frozenset({'quotes', 'pdf', 'docx', 'spreadsheets', 'html', 'txt', 'rtf'})
+
+
+def validate_copy_subfolder(value: object) -> str | None:
+    """Return one safe, accent-preserving child folder name, or disable copies."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('Folder name must be text.')
+    if any(unicodedata.category(character).startswith('C') for character in value):
+        raise ValueError('Folder name cannot contain control characters.')
+    name = value.strip()
+    if not name or name in {'.', '..'} or '/' in name or '\\' in name or Path(name).is_absolute():
+        raise ValueError('Enter one folder name without slashes or path traversal.')
+    if len(name.encode('utf-8')) > 255:
+        raise ValueError('Folder name is too long. Use a shorter name.')
+    if name.casefold() in _PRIMARY_OUTPUT_FOLDERS:
+        raise ValueError('This folder is used for regular exports. Choose a different folder name.')
+    return name
+
+
+def _parse_copy_subfolder(value: object) -> str | None:
+    try:
+        return validate_copy_subfolder(value)
+    except ValueError:
+        return None
 
 
 def _parse_auto_open_output(value: object) -> bool:
@@ -71,6 +98,7 @@ class Preferences:
     auto_open_output: bool = DEFAULT_AUTO_OPEN_OUTPUT
     include_subfolders: bool = DEFAULT_INCLUDE_SUBFOLDERS
     show_source_details: bool = False
+    copy_subfolder: str | None = None
 
     def __post_init__(self) -> None:
         if self.theme not in THEME_CHOICES:
@@ -81,6 +109,7 @@ class Preferences:
             raise ValueError('Include subfolders must be a boolean.')
         if not isinstance(self.show_source_details, bool):
             raise ValueError('Show source details must be a boolean.')
+        object.__setattr__(self, 'copy_subfolder', validate_copy_subfolder(self.copy_subfolder))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +119,7 @@ class Preferences:
             "auto_open_output": self.auto_open_output,
             "include_subfolders": self.include_subfolders,
             "show_source_details": self.show_source_details,
+            "copy_subfolder": self.copy_subfolder,
         }
 
     @classmethod
@@ -103,6 +133,7 @@ class Preferences:
                                 else DEFAULT_INCLUDE_SUBFOLDERS),
             show_source_details=(data['show_source_details'] if isinstance(data.get('show_source_details'), bool)
                                  else False),
+            copy_subfolder=_parse_copy_subfolder(data.get('copy_subfolder')),
         )
 
     def save(self, path: Path) -> None:

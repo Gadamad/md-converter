@@ -185,6 +185,18 @@ class QueueRunner:
                     with source.open(encoding='utf-8') as stream:
                         yield from iter(lambda: stream.read(65536), '')
                 atomic_write_chunks(vault_target, chunks())
+        copy_dir = item['options'].get('copy_dir')
+        if copy_dir:
+            from output_copy import deliver_output_copies
+            published = ([output / entry['filename'] for entry in outputs]
+                         if collection else [output])
+            def persist_receipt():
+                atomic_write_text(Path(item['receipt_path']), json.dumps(receipt))
+            try:
+                deliver_output_copies(published, base_dir=Path(item['options']['output_dir']),
+                    copy_dir=Path(copy_dir), manifest=receipt, persist=persist_receipt)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f'Converted output is saved; additional copy failed: {exc}') from exc
 
     def _images(self, items, retry_failed, completed, total):
         from converters import convert_image_folder_quotes, quote_batch_stem, QuoteBatchHooks
@@ -207,6 +219,8 @@ class QueueRunner:
                 with batch_lock(output):
                     checkpoint = QuoteCheckpoint(output, quote_batch_stem(paths), paths, options['raw_ocr_mode'])
                     checkpoint.report['queue_owned'] = True
+                    if options.get('copy_dir'):
+                        checkpoint.report['copy_dir'] = options['copy_dir']
                     checkpoint.save('running')
                 checkpoint_path = str(checkpoint.report_path)
                 self.store.update_items([item['id'] for item in items], checkpoint_path=checkpoint_path)
@@ -252,16 +266,19 @@ class QueueRunner:
         except Exception as exc:
             # Completed image records remain in the image journal even if an
             # export failed. Retry links back to that journal, without new OCR.
+            reconciled_ids = set()
             if checkpoint_path and Path(checkpoint_path).is_file():
                 try:
-                    self._reconcile_images(items, Path(checkpoint_path))
+                    reconciled_ids = self._reconcile_images(items, Path(checkpoint_path))
                 except (OSError, ValueError):
                     pass  # A damaged journal must still produce failed queue rows.
             for item in items:
                 current = self.store.get_item(item['id'])
-                if current['status'] != 'done':
+                pending = current['status'] == 'waiting' and item['id'] in reconciled_ids
+                if current['status'] != 'done' and not pending and not is_review_failure(current):
                     self.store.update_item(item['id'], status='failed', error=str(exc))
-                finished(item['id'])
+                if not pending:
+                    finished(item['id'])
             self.on_status(f'Image batch needs attention: {exc}')
             self.on_change()
         return len(finished_ids)
@@ -269,11 +286,14 @@ class QueueRunner:
     def _reconcile_images(self, items, checkpoint_path):
         checkpoint = QuoteCheckpoint.load(checkpoint_path)
         records = {record['path']: record for record in checkpoint.items}
-        export_pending = checkpoint.report.get('export_pending') or checkpoint.report.get('vault_pending')
+        export_pending = (checkpoint.report.get('export_pending') or checkpoint.report.get('vault_pending')
+                          or checkpoint.report.get('copy_pending'))
+        reconciled_ids = set()
         for item in items:
             record = records.get(str(Path(item['source']).resolve()))
             if record is None:
                 continue
+            reconciled_ids.add(item['id'])
             state = {'success': 'done', 'failed': 'failed', 'pending': 'waiting'}[record['status']]
             error = record.get('error', '')
             if state == 'done' and export_pending:
@@ -285,3 +305,4 @@ class QueueRunner:
             if any(item.get(key) != value for key, value in changes.items()):
                 self.store.update_item(item['id'], **changes)
                 item.update(changes)
+        return reconciled_ids

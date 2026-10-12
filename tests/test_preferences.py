@@ -31,6 +31,9 @@ class PreferencesDefaultsTests(unittest.TestCase):
     def test_default_includes_subfolders(self):
         self.assertTrue(Preferences().include_subfolders)
 
+    def test_named_copy_is_disabled_by_default(self):
+        self.assertIsNone(getattr(Preferences(), 'copy_subfolder', 'missing'))
+
 
 class PreferencesValidationTests(unittest.TestCase):
     def test_invalid_theme_raises_value_error(self):
@@ -46,6 +49,21 @@ class PreferencesValidationTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 Preferences(include_subfolders=invalid)
 
+    def test_copy_subfolder_accepts_trimmed_hungarian_name(self):
+        self.assertEqual(Preferences(copy_subfolder='  Árvíztűrő tükörfúrógép  ').copy_subfolder,
+                         'Árvíztűrő tükörfúrógép')
+
+    def test_copy_subfolder_rejects_paths_control_characters_and_empty_names(self):
+        for invalid in ('', '  ', '.', '..', '/tmp/archive', 'a/b', 'a\\b', 'a\0b',
+                        'a\nb', 'a\tb', 'a\u202eb', 7, True, [], {}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                Preferences(copy_subfolder=invalid)
+
+    def test_copy_subfolder_rejects_primary_export_folder_names_case_insensitively(self):
+        for name in ('quotes', 'PDF', 'docx', 'Spreadsheets', 'html', 'TXT', 'rtf'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'regular exports.*different'):
+                Preferences(copy_subfolder=name)
+
 
 class PreferencesSerializationTests(unittest.TestCase):
     def test_to_dict_contains_expected_keys(self):
@@ -53,7 +71,7 @@ class PreferencesSerializationTests(unittest.TestCase):
         data = prefs.to_dict()
         self.assertEqual(
             set(data.keys()),
-            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders", "show_source_details"},
+            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders", "show_source_details", "copy_subfolder"},
         )
 
     def test_round_trip_preserves_values(self):
@@ -63,6 +81,7 @@ class PreferencesSerializationTests(unittest.TestCase):
             output_dir=Path("/tmp/output"),
             auto_open_output=True,
             include_subfolders=False,
+            copy_subfolder='Kutatási jegyzetek',
         )
         restored = Preferences.from_dict(original.to_dict())
         self.assertEqual(restored, original)
@@ -80,6 +99,13 @@ class PreferencesSerializationTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 prefs = Preferences.from_dict({'include_subfolders': invalid, 'theme': 'dark'})
                 self.assertTrue(prefs.include_subfolders)
+                self.assertEqual(prefs.theme, 'dark')
+
+    def test_invalid_stored_copy_name_disables_copy_without_losing_preferences(self):
+        for invalid in ('../outside', '/absolute', 'a\\b', '', 123):
+            with self.subTest(invalid=invalid):
+                prefs = Preferences.from_dict({'copy_subfolder': invalid, 'theme': 'dark'})
+                self.assertIsNone(getattr(prefs, 'copy_subfolder', 'missing'))
                 self.assertEqual(prefs.theme, 'dark')
 
 

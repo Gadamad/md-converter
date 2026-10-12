@@ -245,6 +245,30 @@ class Api(SavedQueueApi):
     def _effective_output_dir(self) -> Path:
         return self._preferences.output_dir or OUTPUT_DIR
 
+    def _copy_dir_for_preferences(self, preferences, *, validate_destination=True) -> Path | None:
+        name = getattr(preferences, 'copy_subfolder', None)
+        if name is None:
+            return None
+        from preferences import validate_copy_subfolder
+        name = validate_copy_subfolder(name)
+        base = (preferences.output_dir or OUTPUT_DIR).resolve()
+        if not validate_destination:
+            # Freeze the intended child path without following a changed link.
+            # Delivery validates it after the primary export has been saved.
+            return base / name
+        destination = (base / name).resolve()
+        if destination.parent != base:
+            raise ValueError('The named folder must stay directly inside the Save to folder.')
+        validate_copy_subfolder(destination.name)
+        if (base / name).is_symlink():
+            raise ValueError('This name uses a linked folder. Choose a different folder name.')
+        if destination.exists() and not destination.is_dir():
+            raise ValueError('A file already uses this name. Choose a different folder name.')
+        return destination
+
+    def _effective_copy_dir(self, *, validate_destination=True) -> Path | None:
+        return self._copy_dir_for_preferences(self._preferences, validate_destination=validate_destination)
+
     def _maybe_auto_open_output(self, output_paths: list[Path]) -> None:
         if not self._preferences.auto_open_output or not output_paths:
             return
@@ -334,7 +358,13 @@ class Api(SavedQueueApi):
     # -- public API exposed to JS --
 
     def get_application_state(self):
+        copy_error = ''
+        try:
+            copy_dir = self._effective_copy_dir()
+        except (OSError, RuntimeError, ValueError) as exc:
+            copy_dir, copy_error = None, str(exc)
         return {"version": VERSION, "output_dir": str(self._effective_output_dir()),
+                "copy_dir": str(copy_dir) if copy_dir is not None else None, "copy_error": copy_error,
                 "vault_configured": bool(VAULT_DIR), "recovery_jobs": self.get_recovery_jobs(),
                 "queue": self.get_queue_state()}
 
@@ -392,7 +422,11 @@ class Api(SavedQueueApi):
             data = self._preferences_payload()
             if isinstance(payload, dict):
                 data.update(payload)
+                if 'copy_subfolder' in payload:
+                    from preferences import validate_copy_subfolder
+                    data['copy_subfolder'] = validate_copy_subfolder(payload['copy_subfolder'])
             preferences = Preferences.from_dict(data)
+            self._copy_dir_for_preferences(preferences)
             self._save_preferences(preferences)
             # Intake threads see only committed immutable preferences, even if
             # saving fails or a native folder drop arrives during the write.
@@ -408,6 +442,16 @@ class Api(SavedQueueApi):
             if self._job_running:
                 raise RuntimeError('Cannot change folder options while a conversion is running.')
             return self.save_preferences({'include_subfolders': enabled})
+        finally:
+            self._job_lock.release()
+
+    def set_copy_subfolder(self, name):
+        if not self._job_lock.acquire(blocking=False):
+            raise RuntimeError('Cannot change the copy folder while a conversion is running.')
+        try:
+            if self._job_running:
+                raise RuntimeError('Cannot change the copy folder while a conversion is running.')
+            return self.save_preferences({'copy_subfolder': name})
         finally:
             self._job_lock.release()
 

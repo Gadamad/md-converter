@@ -376,9 +376,15 @@ class SavedQueueApi:
         self._show_abort_button()
         self._show_log_panel()
         self._set_progress(0)
-        options = {'output_dir': str(self._effective_output_dir().resolve()),
-                   'vault_dir': str(self._vault_dir.resolve()) if self._vault_checked() and self._vault_dir else None,
-                   'raw_ocr_mode': self._preferences.raw_ocr_mode}
+        with self._preferences_lock:
+            options = {'output_dir': str(self._effective_output_dir().resolve()),
+                       'vault_dir': str(self._vault_dir.resolve()) if self._vault_checked() and self._vault_dir else None,
+                       'raw_ocr_mode': self._preferences.raw_ocr_mode}
+            # Destination failures belong to delivery, after the normal output
+            # is safe. A retry also uses each item's saved destinations.
+            copy_dir = self._effective_copy_dir(validate_destination=False)
+            if copy_dir is not None:
+                options['copy_dir'] = str(copy_dir)
         def progress(current, total, title):
             self._set_summary(f'Processing {current} / {total}: {title}')
             self._set_progress(100 * (current - 1) / total if total else 0)
