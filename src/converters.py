@@ -58,7 +58,8 @@ from file_utils import atomic_write_text, atomic_write_chunks, reserve_output_pa
 from markdownify import markdownify as html_to_md
 from quote_markdown import render_quote_batch_markdown
 from quote_parser import extract_quote_records
-from quote_checkpoint import QuoteCheckpoint, fingerprint, matching_checkpoint, canonical_paths, batch_lock
+from quote_checkpoint import (QuoteCheckpoint, fingerprint, matching_checkpoint, canonical_paths,
+                              batch_lock, is_no_text_failure, NO_TEXT_MESSAGE)
 from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
@@ -353,6 +354,8 @@ def _convert_image_batch(
             hooks.on_status(message)
 
     selected = [item for item in checkpoint.items if item["status"] == ("failed" if retry_failed else "pending")
+                and not item.get('skipped')
+                and (not retry_failed or selected_paths is not None or not is_no_text_failure(item))
                 and (selected_paths is None or item['path'] in selected_paths)]
     processed = sum(item["status"] != "pending" and item not in selected for item in checkpoint.items)
     if processed and hooks and hooks.on_image_processed:
@@ -376,13 +379,18 @@ def _convert_image_batch(
                 raise ValueError("No quotes found in image")
             if fingerprint(path) != source_fingerprint:
                 raise ValueError("Source image changed during conversion; retry this image")
-            checkpoint.complete(item, new_records, source_fingerprint)
+            checkpoint.complete(item, new_records, source_fingerprint,
+                                diagnostics=getattr(ocr_result, 'diagnostics', None))
         except OcrCancelled:
             canceled = True
             break
         except Exception as exc:
-            checkpoint.complete(item, [], source_fingerprint, error=exc)
-            notice(f"Failed: {name}: {exc}")
+            code = getattr(exc, 'code', None)
+            error = NO_TEXT_MESSAGE if code == 'no_text' else str(exc)
+            checkpoint.complete(item, [], source_fingerprint, error=error,
+                                error_code=code, diagnostics=getattr(exc, 'diagnostics', None))
+            outcome = 'Needs review' if code == 'no_text' else 'Failed'
+            notice(f"{outcome}: {name}: {error}")
         processed += 1
         checkpoint.save("running")
         if hooks and hooks.on_image_processed:
@@ -422,8 +430,9 @@ def _convert_image_batch(
         message = f"CANCELED -> {output_path.name} ({processed}/{total} images)" if records else f"CANCELED ({processed}/{total} images processed)"
         return ConvertResult(False, str(output_path), total_words, message)
     if failed:
+        succeeded = sum(item['status'] == 'success' for item in checkpoint.items)
         return ConvertResult(False, str(output_path), total_words,
-                             f"PARTIAL -> {output_path.name} ({processed - failed}/{total} succeeded; {failed} failed; see progress report)")
+                             f"PARTIAL -> {output_path.name} ({succeeded}/{total} succeeded; {failed} failed; see progress report)")
     if not records:
         return ConvertResult(False, str(output_path), 0, "SKIPPED (no quotes found)")
     return ConvertResult(True, str(output_path), total_words, f"OK -> {output_path.name}")

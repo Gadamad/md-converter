@@ -273,11 +273,20 @@ class QueueStore:
                     assignments = ", ".join(f"{field} = ?" for field in values)
                     connection.execute(f"UPDATE items SET {assignments} WHERE id = ?", (*values.values(), item_id))
 
-    def remove_item(self, item_id):
+    def remove_item(self, item_id, *, before_remove=None):
+        """Remove one item, optionally checkpointing related state first.
+
+        The callback receives the current item under the worker lock and write
+        transaction. It must be idempotent: its external journal may commit
+        before SQLite deletion fails. An exception always retains the queue row.
+        """
         with self.worker_lock(), self._connection(write=True) as connection:
-            result = connection.execute("DELETE FROM items WHERE id = ?", (item_id,))
-            if result.rowcount != 1:
+            row = connection.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+            if row is None:
                 raise KeyError(f"Unknown saved item: {item_id}")
+            if before_remove is not None:
+                before_remove(self._item(row))
+            connection.execute("DELETE FROM items WHERE id = ?", (item_id,))
 
     def clear_queue(self, queue_id, completed_only=False):
         with self.worker_lock(), self._connection(write=True) as connection:

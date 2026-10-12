@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from file_utils import atomic_write_chunks, atomic_write_text
-from quote_checkpoint import QuoteCheckpoint, batch_lock
+from quote_checkpoint import QuoteCheckpoint, batch_lock, is_no_text_failure
 
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
@@ -15,6 +15,7 @@ class QueueRunner:
     def __init__(self, store, cache_dir, options, *, should_cancel=lambda: False,
                  on_change=lambda: None, on_status=lambda message: None,
                  on_progress=lambda current, total, title: None,
+                 on_item_processed=lambda completed, total: None,
                  route_fn=None, paste_fn=None):
         self.store = store
         self.cache_dir = Path(cache_dir)
@@ -23,14 +24,46 @@ class QueueRunner:
         self.on_change = on_change
         self.on_status = on_status
         self.on_progress = on_progress
+        self.on_item_processed = on_item_processed
         self.route_fn = route_fn
         self.paste_fn = paste_fn
 
-    def run(self, queue_id, retry_failed=False):
+    def run(self, queue_id, retry_failed=False, selected_ids=None):
         self.store.recover_interrupted()
         with self.store.worker_lock():
-            selected = [item for item in self.store.items(queue_id)
-                        if item['status'] == ('failed' if retry_failed else 'waiting')]
+            items = self.store.items(queue_id)
+            eligible_status = 'failed' if retry_failed else 'waiting'
+            if selected_ids is not None:
+                if isinstance(selected_ids, str):
+                    raise ValueError('Select item IDs from this collection')
+                selected_ids = set(selected_ids)
+                if not selected_ids <= {item['id'] for item in items}:
+                    raise ValueError('Selected items do not belong to this collection')
+                if any(item['status'] != eligible_status for item in items if item['id'] in selected_ids):
+                    raise ValueError(f'Only {eligible_status} items can be selected for this run')
+            candidates = [item for item in items if item['status'] == eligible_status
+                          and (selected_ids is None or item['id'] in selected_ids)]
+            selected = []
+            journals = {}
+            for item in candidates:
+                record = {}
+                if item['checkpoint_path']:
+                    path = item['checkpoint_path']
+                    if path not in journals:
+                        try:
+                            checkpoint = QuoteCheckpoint.load(Path(path))
+                            journals[path] = {row['path']: row for row in checkpoint.items}
+                        except (OSError, ValueError):
+                            # Let normal conversion report an unavailable journal.
+                            journals[path] = {}
+                    record = journals[path].get(str(Path(item['source']).resolve()), {})
+                if record.get('skipped'):
+                    if selected_ids is not None:
+                        raise ValueError('Skipped images cannot be retried')
+                    continue
+                if retry_failed and selected_ids is None and (is_no_text_failure(item) or is_no_text_failure(record)):
+                    continue
+                selected.append(item)
             unconfigured = [item['id'] for item in selected if not item['options']]
             self.store.update_items(unconfigured, options=self.options)
             for item in selected:
@@ -45,8 +78,9 @@ class QueueRunner:
                 if self.should_cancel():
                     break
                 self.on_progress(processed + 1, total, item['title'])
-                self._document(item)
-                processed += 1
+                if self._document(item):
+                    processed += 1
+                    self.on_item_processed(processed, total)
                 self.on_change()
             # A checkpoint keeps the whole image collection and its shared export.
             # Existing groups are reused; newly queued images get a fresh journal.
@@ -55,8 +89,7 @@ class QueueRunner:
                 if self.should_cancel():
                     break
                 group = list(grouped)
-                self._images(group, retry_failed, processed, total)
-                processed += len(group)
+                processed += self._images(group, retry_failed, processed, total)
             self.on_change()
         return self.store.state()
 
@@ -93,7 +126,7 @@ class QueueRunner:
                 if not result.success:
                     if self.should_cancel():
                         self.store.update_item(item_id, status='waiting', error='')
-                        return
+                        return False
                     raise RuntimeError(result.message)
                 source_output = Path(result.output_path)
                 if source_output.is_file():
@@ -119,6 +152,7 @@ class QueueRunner:
         except Exception as exc:
             self.store.update_item(item_id, status='failed', error=str(exc))
             self.on_status(f"Failed: {item['title']}: {exc}")
+        return True
 
     def _publish(self, item, receipt):
         collection = 'outputs' in receipt
@@ -158,6 +192,15 @@ class QueueRunner:
         options = first['options']
         output = Path(options['output_dir']) / 'quotes'
         checkpoint_path = first['checkpoint_path']
+        started_ids = set()
+        finished_ids = set()
+        active_id = None
+
+        def finished(item_id):
+            if item_id not in finished_ids:
+                finished_ids.add(item_id)
+                self.on_item_processed(completed + len(finished_ids), total)
+
         try:
             if not checkpoint_path:
                 paths = [item['source'] for item in items]
@@ -171,17 +214,26 @@ class QueueRunner:
             checkpoint = QuoteCheckpoint.load(Path(checkpoint_path))
             self.on_change()
             def started(n, count, name):
-                self.on_progress(completed + min(n, len(items)), total, name)
+                nonlocal active_id
+                self.on_progress(completed + len(started_ids) + 1, total, name)
                 # The journal identifies the exact path, even when filenames repeat.
                 current = QuoteCheckpoint.load(Path(checkpoint_path)).report.get('current_image')
                 for item in items:
                     if str(Path(item['source']).resolve()) == current:
+                        active_id = item['id']
+                        started_ids.add(active_id)
                         self.store.update_item(item['id'], status='processing', error='')
                         item.update(status='processing', error='')
                         break
                 self.on_change()
-            def reconcile(*_):
+            def reconcile(n=None, count=None, name=None):
+                nonlocal active_id
                 self._reconcile_images(items, Path(checkpoint_path))
+                # The converter also reports saved journal totals before OCR.
+                # Only an actual started/finished pair completes an attempt.
+                if n is not None and active_id is not None:
+                    finished(active_id)
+                    active_id = None
                 self.on_change()
             convert_image_folder_quotes(
                 [item['path'] for item in checkpoint.items], output,
@@ -193,17 +245,26 @@ class QueueRunner:
                 retry_failed=retry_failed, preserve_completed=True,
                 selected_paths={str(Path(item['source']).resolve()) for item in items})
             reconcile()
+            # Export repair can finish saved image records without any new OCR.
+            for item in items:
+                if item['id'] not in started_ids and self.store.get_item(item['id'])['status'] == 'done':
+                    finished(item['id'])
         except Exception as exc:
             # Completed image records remain in the image journal even if an
             # export failed. Retry links back to that journal, without new OCR.
             if checkpoint_path and Path(checkpoint_path).is_file():
-                self._reconcile_images(items, Path(checkpoint_path))
+                try:
+                    self._reconcile_images(items, Path(checkpoint_path))
+                except (OSError, ValueError):
+                    pass  # A damaged journal must still produce failed queue rows.
             for item in items:
                 current = self.store.get_item(item['id'])
                 if current['status'] != 'done':
                     self.store.update_item(item['id'], status='failed', error=str(exc))
+                finished(item['id'])
             self.on_status(f'Image batch needs attention: {exc}')
             self.on_change()
+        return len(finished_ids)
 
     def _reconcile_images(self, items, checkpoint_path):
         checkpoint = QuoteCheckpoint.load(checkpoint_path)

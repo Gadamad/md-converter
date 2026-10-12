@@ -54,18 +54,19 @@ class OcrSupervisionTests(unittest.TestCase):
             result = image_ocr._run_backend('vision', Path('quote.png'), timeout=2)
         self.assertEqual(result.text, 'Readable quote.')
 
-    def test_timeout_switches_remaining_batch_to_tesseract(self):
+    def test_timeout_does_not_disable_vision_for_the_next_image(self):
         session = image_ocr.OcrSession()
         notices = []
         with mock.patch.object(image_ocr, '_run_backend', side_effect=[
             image_ocr.OcrTimeout('Vision timed out'),
             image_ocr.OcrResult('one', 'tesseract'),
-            image_ocr.OcrResult('two', 'tesseract'),
+            image_ocr.OcrResult('two', 'vision'),
         ]) as run:
             image_ocr.ocr_image('one.png', session=session, on_status=notices.append)
             image_ocr.ocr_image('two.png', session=session, on_status=notices.append)
-        self.assertEqual([call.args[0] for call in run.call_args_list], ['vision', 'tesseract', 'tesseract'])
+        self.assertEqual([call.args[0] for call in run.call_args_list], ['vision', 'tesseract', 'vision'])
         self.assertTrue(notices)
+        self.assertNotIn('rest of this batch', notices[0])
 
     def test_cancellation_does_not_start_fallback(self):
         with mock.patch.object(image_ocr, '_run_backend', side_effect=image_ocr.OcrCancelled()) as run:

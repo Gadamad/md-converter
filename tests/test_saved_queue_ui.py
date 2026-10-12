@@ -299,6 +299,38 @@ const fs = require('node:fs');
    assert.ok(bounds.body<=bounds.width,'Minimum width must not overflow');
    assert.ok(bounds.footer<=bounds.height,'Footer controls must remain visible at the minimum window size');
   }
+  await page.evaluate(()=>{
+   resetQueue({active_id:'review',queues:[{id:'review',name:'Quote review'}],items:[{id:'kept',kind:'file',title:'Saved quote.jpg',status:'done'},{id:'empty',kind:'file',title:'Garden.jpg',source:'/tmp/Garden.jpg',status:'review',error:'No text detected. Preview this image, try again or skip it.'}],total:2,waiting:0,failed:0,review:1,done:1,busy:false});
+   window.testCalls=[];
+   window.pywebview.api={preview_queue_item:async(id)=>{window.testCalls.push(['preview_queue_item',id]);return true;},retry_queue_item:async(id)=>{window.testCalls.push(['retry_queue_item',id]);return false;},skip_queue_item:async(id)=>{window.testCalls.push(['skip_queue_item',id]);window.testQueue={...window.testQueue,items:window.testQueue.items.filter(item=>item.id!==id),total:1,review:0};return window.testQueue;}};
+  });
+  assert.equal(await page.locator('.queue-status.review').textContent(),'Needs review');
+  assert.equal(await page.locator('#retry-failed-btn').isHidden(),true,'No-text review is an explicit decision, not a failed-engine retry');
+  await page.evaluate(()=>{setBusy(true);showAbortButton();});
+  assert.equal(await page.locator('#queue-attention-btn').isDisabled(),true,'Local filtering cannot rerender a stale idle snapshot during startup');
+  await page.evaluate(()=>document.getElementById('queue-attention-btn').click());
+  assert.equal(await page.locator('#add-folder-btn').isDisabled(),true,'A programmatic filter click cannot unlock active conversion');
+  await page.evaluate(()=>{setBusy(false);hideAbortButton();});
+  await page.locator('#queue-attention-btn').click();
+  assert.equal(await page.locator('#folder-queue .queue-row').count(),1,'Attention filtering must keep completed entries saved');
+  assert.equal(await page.locator('#queue-attention-btn').getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'Preview Garden.jpg',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['preview_queue_item','empty']);
+  await page.getByRole('button',{name:'Try again Garden.jpg',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['retry_queue_item','empty']);
+  assert.equal(await page.locator('#new-queue-btn').isEnabled(),true,'Rejected single-image retry releases busy state');
+  await page.locator('#queue-tab').click();
+  for (const theme of ['light','dark']) {
+   await page.evaluate(theme=>document.body.dataset.theme=theme,theme);
+   const bounds=await page.evaluate(()=>({body:document.body.scrollWidth,width:innerWidth,footer:document.querySelector('footer').getBoundingClientRect().bottom,height:innerHeight}));
+   assert.ok(bounds.body<=bounds.width,'Review controls fit the minimum width');
+   assert.ok(bounds.footer<=bounds.height,'Review controls preserve the footer');
+  }
+  await page.getByRole('button',{name:'Skip Garden.jpg',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['skip_queue_item','empty']);
+  assert.equal(await page.locator('#queue-empty-title').textContent(),'Nothing needs attention.');
+  await page.locator('#queue-attention-btn').click();
+  assert.equal(await page.locator('.queue-name').textContent(),'Saved quote.jpg','Skip must retain completed entries');
   assert.deepEqual(errors,[]);
   console.log('Queue browser checks passed');
  } finally { await browser.close(); }

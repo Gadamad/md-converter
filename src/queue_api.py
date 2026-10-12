@@ -3,12 +3,14 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import threading
 import time
 
 from queue_sources import normalize_url, sources_from_text, read_webloc
 from queue_store import QueueStore
 from queue_runner import QueueRunner
+from quote_checkpoint import QuoteCheckpoint, batch_lock
 
 
 class SavedQueueApi:
@@ -47,12 +49,28 @@ class SavedQueueApi:
     def get_queue_state(self):
         if self._queue_store is None:
             return {'active_id': None, 'queues': [], 'items': [], 'waiting': 0,
-                    'failed': 0, 'done': 0, 'total': 0, 'busy': False,
+                    'failed': 0, 'review': 0, 'done': 0, 'total': 0, 'busy': False,
                     'saved': False, 'save_error': self._queue_error}
         state = self._queue_store.state()
+        self._decorate_review_state(state)
         self._last_shown_queue_id = state['active_id']
         state.update(busy=self._job_running, saved=not bool(self._queue_error), save_error=self._queue_error)
         return state
+
+    @staticmethod
+    def _needs_review(item):
+        return item['status'] == 'failed' and (item.get('error') or '').startswith('No text detected')
+
+    @classmethod
+    def _decorate_review_state(cls, state):
+        # Review is a presentation state; schema-1 storage keeps its four durable
+        # statuses, and the original failure remains available for explicit retry.
+        state['review'] = 0
+        for item in state['items']:
+            if cls._needs_review(item):
+                item.update(status='review', error_code='no_text')
+                state['review'] += 1
+        state['failed'] -= state['review']
 
     def _queue_changed(self, force=True):
         # Every item still commits immediately; only expensive UI snapshots are
@@ -264,26 +282,79 @@ class SavedQueueApi:
                     status='waiting', error='', checkpoint_path='', receipt_path='', output_path='', options={})
         return self._queue_edit(relocate, expected_id=item['queue_id'])
 
+    def preview_queue_item(self, item_id):
+        item = self._active_item(item_id)
+        if item['kind'] != 'file':
+            raise ValueError('Preview is available for source files only.')
+        path = Path(item['source'])
+        if not path.is_file():
+            raise FileNotFoundError('Source file is missing. Use Locate file to reconnect it.')
+        subprocess.Popen(['qlmanage', '-p', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+
+    def retry_queue_item(self, item_id):
+        item = self._active_item(item_id)
+        if item['status'] != 'failed':
+            raise ValueError('Only failed items and items needing review can be retried.')
+        return self._start_queue(True, selected_ids={item_id})
+
+    def skip_queue_item(self, item_id):
+        item = self._active_item(item_id)
+        expected_id = item['queue_id']
+
+        def validate(current):
+            if current['kind'] != 'file' or current['status'] != 'failed':
+                raise ValueError('Only failed source files and files needing review can be skipped.')
+
+        validate(item)
+
+        def record_skip(current):
+            # Recheck after acquiring the worker lock. A conversion may have
+            # finished since this action first inspected the row.
+            validate(current)
+            if current['queue_id'] != expected_id or self._queue_store.active_id != expected_id:
+                raise RuntimeError('Queue selection changed in another window. Review the selected queue and try again.')
+            if current['checkpoint_path']:
+                report_path = Path(current['checkpoint_path'])
+                with batch_lock(report_path.parent):
+                    checkpoint = QuoteCheckpoint.load(report_path)
+                    checkpoint.mark_skipped(current['source'])
+
+        return self._queue_edit(
+            lambda _: self._queue_store.remove_item(item_id, before_remove=record_skip),
+            expected_id=expected_id)
+
     def convert_staged(self):
         return self._start_queue(False)
 
     def retry_failed(self):
         return self._start_queue(True)
 
-    def _start_queue(self, retry):
+    def _start_queue(self, retry, selected_ids=None):
         queue_id = self._check_queue_selection()
         state = self._queue_store.state()
         if state['active_id'] != queue_id:
             self._check_queue_selection(queue_id)
-        if not state['failed' if retry else 'waiting']:
+        if selected_ids is not None:
+            selected_ids = set(selected_ids)
+            selectable = {item['id'] for item in state['items'] if item['status'] == 'failed'}
+            if not selected_ids or not selected_ids <= selectable:
+                raise ValueError('Only failed items and items needing review in this queue can be retried.')
+        candidates = [item for item in state['items']
+                      if item['status'] == ('failed' if retry else 'waiting')
+                      and (selected_ids is None or item['id'] in selected_ids)
+                      and (selected_ids is not None or not self._needs_review(item))]
+        if not candidates:
             return False
+        if selected_ids is not None:
+            return self._start_job(self._queue_worker, queue_id, retry, selected_ids)
         return self._start_job(self._queue_worker, queue_id, retry)
 
-    def _queue_worker(self, queue_id, retry):
-        self._run_worker(self._queue_worker_body, queue_id, retry)
+    def _queue_worker(self, queue_id, retry, selected_ids=None):
+        self._run_worker(self._queue_worker_body, queue_id, retry, selected_ids)
         self._queue_changed(force=True)
 
-    def _queue_worker_body(self, queue_id, retry):
+    def _queue_worker_body(self, queue_id, retry, selected_ids=None):
         self._show_abort_button()
         self._show_log_panel()
         self._set_progress(0)
@@ -293,15 +364,18 @@ class SavedQueueApi:
         def progress(current, total, title):
             self._set_summary(f'Processing {current} / {total}: {title}')
             self._set_progress(100 * (current - 1) / total if total else 0)
+        def item_processed(completed, total):
+            self._set_progress(100 * completed / total if total else 0)
         runner = QueueRunner(self._queue_store, self._preferences_path.parent/'queue-cache', options,
             should_cancel=self._cancel_event.is_set, on_change=lambda: self._queue_changed(force=False),
             on_status=lambda text: self._log(text, 'log-error' if text.startswith('Failed:') else 'log-info'),
-            on_progress=progress)
-        runner.run(queue_id, retry_failed=retry)
+            on_progress=progress, on_item_processed=item_processed)
+        runner.run(queue_id, retry_failed=retry, selected_ids=selected_ids)
         items = self._queue_store.items(queue_id)
         done = sum(item['status'] == 'done' for item in items)
-        failed = sum(item['status'] == 'failed' for item in items)
+        review = sum(self._needs_review(item) for item in items)
+        failed = sum(item['status'] == 'failed' for item in items) - review
         waiting = sum(item['status'] == 'waiting' for item in items)
-        self._set_progress(100 * (done + failed) / len(items) if items else 0)
-        self._set_summary(f"{'Stopped' if self._cancel_event.is_set() else 'Finished'} · {done} saved · {waiting} waiting · {failed} failed")
+        self._set_progress(100 * (done + failed + review) / len(items) if items else 0)
+        self._set_summary(f"{'Stopped' if self._cancel_event.is_set() else 'Finished'} · {done} saved · {waiting} waiting · {failed} failed · {review} to review")
         self._maybe_auto_open_output([Path(item['output_path']) for item in items if item['status'] == 'done'])

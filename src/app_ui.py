@@ -46,12 +46,14 @@ textarea::placeholder { color:var(--muted); }
 .small { font-size:12px; min-height:30px; padding:5px 9px; }
 .queue-toolbar { display:flex; flex-direction:column; gap:7px; padding:10px 12px; border-bottom:1px solid var(--line); }
 .queue-picker-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; } .queue-picker-heading label { font-size:12px; font-weight:600; } .queue-picker-heading span { font-size:11px; color:var(--muted); }
+#queue-attention-btn { margin-left:auto; min-height:24px; padding:2px 7px; font-size:11px; } #queue-attention-btn[aria-pressed="true"] { color:var(--accent); background:var(--accent-soft); }
 .queue-picker-controls { display:flex; align-items:center; gap:6px; }
 .queue-picker-controls .delete-saved-queue { color:var(--danger); } .queue-picker-controls .delete-saved-queue:hover:not(:disabled) { background:var(--danger-soft); }
 .queue-toolbar select { min-width:100px; max-width:280px; flex:1; height:32px; font-size:12px; background:var(--surface); }
 .save-state { margin-left:auto; color:var(--muted); font-size:11px; white-space:nowrap; } .save-state.unsaved { color:var(--danger); }
 .queue-status { font-size:11px; color:var(--muted); white-space:nowrap; } .queue-status.done { color:var(--accent); } .queue-status.failed { color:var(--danger); } .queue-status.processing { color:var(--accent); }
 .queue-error { color:var(--danger); font-size:11px; line-height:1.45; margin-top:4px; overflow-wrap:anywhere; -webkit-user-select:text; user-select:text; }
+.queue-error.review { color:var(--muted); }
 .queue-item-actions { display:flex; align-items:center; gap:3px; }
 .queue-actions-menu { position:fixed; z-index:2; min-width:168px; padding:5px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
 .queue-actions-menu button { width:100%; justify-content:flex-start; } .queue-actions-menu button:last-child { color:var(--danger); }
@@ -113,7 +115,7 @@ textarea::placeholder { color:var(--muted); }
 
 <section class="operations-shell" aria-label="Conversion workspace">
  <div class="workspace-toolbar"><div class="workspace-tabs" role="tablist" aria-label="Workspace"><button id="queue-tab" role="tab" aria-selected="true" aria-controls="queue-panel">Queue <span id="queue-count" class="count">0</span></button><button id="activity-tab" role="tab" aria-selected="false" aria-controls="log-container" tabindex="-1">Activity <span id="activity-alert" class="count" hidden>!</span></button></div><div id="queue-pagination" class="queue-pagination" role="group" aria-label="Queue pages" hidden><button id="queue-prev-btn" class="quiet" aria-label="Previous queue page">‹</button><span id="queue-page-range" role="status" aria-live="polite"></span><button id="queue-next-btn" class="quiet" aria-label="Next queue page">›</button></div><button id="queue-actions-btn" class="quiet small" aria-haspopup="menu" aria-controls="queue-actions-menu" aria-expanded="false" disabled>Queue actions</button><button id="copy-btn" class="quiet small" hidden>Copy log</button></div>
- <div id="queue-toolbar" class="queue-toolbar"><div class="queue-picker-heading"><label for="queue-select">Saved queues</label><span id="queue-select-hint">Choose a name to reopen it.</span></div><div class="queue-picker-controls"><select id="queue-select" aria-describedby="queue-select-hint" disabled><option>Loading queue…</option></select><button id="new-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>New</button><button id="rename-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>Rename</button><button id="delete-saved-queue-btn" class="quiet small delete-saved-queue" aria-haspopup="dialog" aria-controls="queue-delete-modal" disabled>Delete queue…</button><span id="queue-save-state" class="save-state" role="status" aria-live="polite">Loading…</span></div></div>
+ <div id="queue-toolbar" class="queue-toolbar"><div class="queue-picker-heading"><label for="queue-select">Saved queues</label><span id="queue-select-hint">Choose a name to reopen it.</span><button id="queue-attention-btn" class="quiet small" aria-pressed="false" hidden>Needs attention</button></div><div class="queue-picker-controls"><select id="queue-select" aria-describedby="queue-select-hint" disabled><option>Loading queue…</option></select><button id="new-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>New</button><button id="rename-queue-btn" class="quiet small" aria-haspopup="dialog" disabled>Rename</button><button id="delete-saved-queue-btn" class="quiet small delete-saved-queue" aria-haspopup="dialog" aria-controls="queue-delete-modal" disabled>Delete queue…</button><span id="queue-save-state" class="save-state" role="status" aria-live="polite">Loading…</span></div></div>
  <div class="operations-panel">
   <section id="recovery-panel" class="recovery" aria-labelledby="recovery-title" hidden><h2 id="recovery-title" class="recovery-heading">Continue where you left off</h2><div id="recovery-jobs"></div></section>
   <div id="queue-panel" role="tabpanel" aria-labelledby="queue-tab"><div id="folder-queue"></div><div id="queue-empty" class="queue-empty"><strong id="queue-empty-title">A little order for your next idea.</strong><p id="queue-empty-copy">Add files, links or text, then convert when you’re ready.</p></div></div>
@@ -147,6 +149,7 @@ textarea::placeholder { color:var(--muted); }
 const $ = id => document.getElementById(id);
 let busy = false, canStop = false, queued = 0, sourceMode = 'files', workspaceMode = 'queue';
 let queueState = {active_id:null,queues:[],items:[],waiting:0,failed:0,done:0,total:0,saved:false};
+let queueAttentionOnly = false;
 let queueReady = false, queueMutationPending = false, folderPreferencePending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
 let queueDeleteId = null, queueDeleteReturnFocus = null;
 const QUEUE_PAGE_SIZE = 200;
@@ -183,7 +186,8 @@ function updateActions() {
  $('retry-failed-btn').disabled = locked || unavailable || !queueState.failed;
  $('queue-name-save-btn').disabled = locked || !$('queue-name-input').value.trim();
  $('queue-name-input').disabled = queueMutationPending;
- document.querySelectorAll('.folder-remove-btn, .queue-locate-btn, .recovery-row button').forEach(button => button.disabled = locked);
+ document.querySelectorAll('.folder-remove-btn, .queue-locate-btn, .queue-recovery-btn, .recovery-row button').forEach(button => button.disabled = locked);
+ $('queue-attention-btn').disabled = locked || unavailable;
  renderQueuePagination();
  if (locked) closeQueueActions();
 }
@@ -206,23 +210,25 @@ function renderQueueSaveState() {
  label.classList.toggle('unsaved',queueReady && !queueMutationPending && queueState.saved !== true);
  label.title = queueMutationPending ? 'Saving this queue on your Mac' : queueState.saved === true ? 'Queue saved on your Mac' : 'This queue has not been saved';
 }
+function visibleQueueItems(state=queueState) { return queueAttentionOnly ? state.items.filter(item => ['failed','review'].includes(item.status)) : state.items; }
 function renderQueuePagination() {
- const count = queueState.items.length, start = queuePage * QUEUE_PAGE_SIZE;
+ const count = visibleQueueItems().length, start = queuePage * QUEUE_PAGE_SIZE;
  $('queue-pagination').hidden = workspaceMode !== 'queue' || count <= QUEUE_PAGE_SIZE;
  $('queue-page-range').textContent = `${(count ? start+1 : 0).toLocaleString()}–${Math.min(start+QUEUE_PAGE_SIZE,count).toLocaleString()} of ${count.toLocaleString()}`;
- $('queue-prev-btn').disabled = queueMutationPending || queuePage === 0;
- $('queue-next-btn').disabled = queueMutationPending || start+QUEUE_PAGE_SIZE >= count;
+ $('queue-prev-btn').disabled = busy || queueMutationPending || folderPreferencePending || queuePage === 0;
+ $('queue-next-btn').disabled = busy || queueMutationPending || folderPreferencePending || start+QUEUE_PAGE_SIZE >= count;
 }
 function changeQueuePage(delta) {
- if (queueMutationPending) return;
- queuePage = Math.max(0,Math.min(queuePage+delta,Math.ceil(queueState.items.length/QUEUE_PAGE_SIZE)-1));
+ if (busy || queueMutationPending || folderPreferencePending) return;
+ queuePage = Math.max(0,Math.min(queuePage+delta,Math.ceil(visibleQueueItems().length/QUEUE_PAGE_SIZE)-1));
  renderSavedQueue(queueState); document.querySelector('.operations-panel').scrollTop = 0;
 }
 function renderSavedQueue(state) {
  if (!state || !Array.isArray(state.items) || !Array.isArray(state.queues)) return;
  const receivedItems = state.active_id === queueState.active_id && state.total > queueState.total;
- if (state.active_id !== queueState.active_id) queuePage = 0;
- queuePage = Math.max(0,Math.min(queuePage,Math.ceil(state.items.length/QUEUE_PAGE_SIZE)-1));
+ if (state.active_id !== queueState.active_id) { queuePage = 0; queueAttentionOnly = false; }
+ const visibleItems = visibleQueueItems(state);
+ queuePage = Math.max(0,Math.min(queuePage,Math.ceil(visibleItems.length/QUEUE_PAGE_SIZE)-1));
  queueReady = true; queueState = state; queued = state.waiting || 0;
  const unavailable = queueUnavailable();
  if (typeof state.busy === 'boolean') busy = state.busy;
@@ -231,12 +237,16 @@ function renderSavedQueue(state) {
  for (const queue of state.queues) { const option = document.createElement('option'); option.value = queue.id; option.textContent = queue.name; selector.appendChild(option); }
  if (unavailable) { const option = document.createElement('option'); option.value = ''; option.textContent = 'Saved queues unavailable'; selector.appendChild(option); }
  selector.value = state.active_id || ''; selector.title = state.queues.find(queue => queue.id === state.active_id)?.name || '';
- $('queue-count').textContent = String(state.total || 0); $('queue-empty').hidden = Boolean(state.total) && !unavailable;
+ const attention = (state.failed || 0)+(state.review || 0);
+ $('queue-attention-btn').hidden = !attention && !queueAttentionOnly;
+ $('queue-attention-btn').textContent = queueAttentionOnly ? 'Show all items' : 'Needs attention · '+attention;
+ $('queue-attention-btn').setAttribute('aria-pressed',String(queueAttentionOnly));
+ $('queue-count').textContent = String(state.total || 0); $('queue-empty').hidden = Boolean(visibleItems.length) && !unavailable;
  $('queue-empty').classList.toggle('error',unavailable);
- $('queue-empty-title').textContent = unavailable ? 'Saved queues need attention' : 'A little order for your next idea.';
- $('queue-empty-copy').textContent = unavailable ? state.save_error || state.error || 'Saved queues are unavailable. Restart the app to try again.' : 'Add files, links or text, then convert when you’re ready.';
+ $('queue-empty-title').textContent = unavailable ? 'Saved queues need attention' : queueAttentionOnly ? 'Nothing needs attention.' : 'A little order for your next idea.';
+ $('queue-empty-copy').textContent = unavailable ? state.save_error || state.error || 'Saved queues are unavailable. Restart the app to try again.' : queueAttentionOnly ? 'Your completed conversions are saved. Show all items to see them.' : 'Add files, links or text, then convert when you’re ready.';
  const rows = document.createDocumentFragment();
- for (const item of state.items.slice(queuePage*QUEUE_PAGE_SIZE,(queuePage+1)*QUEUE_PAGE_SIZE)) {
+ for (const item of visibleItems.slice(queuePage*QUEUE_PAGE_SIZE,(queuePage+1)*QUEUE_PAGE_SIZE)) {
   const row = document.createElement('div'); row.className = 'queue-row'; row.dataset.itemId = item.id;
   const symbol = document.createElement('div'); symbol.className = 'file-icon'; symbol.setAttribute('aria-hidden','true');
   symbol.textContent = item.kind === 'url' ? 'WEB' : item.kind === 'text' ? 'TXT' : (item.title || item.source || '').split('.').pop().slice(0,4).toUpperCase();
@@ -248,20 +258,24 @@ function renderSavedQueue(state) {
   const sourceDescription = repeatedUrl ? item.status === 'done' ? 'Website · Converted' : item.status === 'processing' ? 'Website · Fetching page' : 'Website · Fetched when you convert' : item.kind === 'text' ? 'Pasted text' : item.source;
   meta.textContent = [group,sourceDescription].filter(Boolean).join(' · '); meta.title = [item.group_name,item.source].filter(Boolean).join(' · ');
   copy.append(name,meta);
-  if (item.error) { const error = document.createElement('div'); error.className = 'queue-error'; error.textContent = item.error; copy.appendChild(error); }
-  const status = document.createElement('span'); status.className = 'queue-status '+item.status; status.textContent = {waiting:'Waiting',processing:'Converting',done:'Done',failed:'Failed'}[item.status] || item.status;
+  if (item.error) { const error = document.createElement('div'); error.className = 'queue-error'+(item.status === 'review' ? ' review' : ''); error.textContent = item.error; copy.appendChild(error); }
+  const status = document.createElement('span'); status.className = 'queue-status '+item.status; status.textContent = {waiting:'Waiting',processing:'Converting',done:'Done',failed:'Failed',review:'Needs review'}[item.status] || item.status;
   if (item.output_path) status.title = item.output_path;
   const actions = document.createElement('div'); actions.className = 'queue-item-actions';
-  if (item.kind === 'file' && item.status === 'failed') { const locate = document.createElement('button'); locate.className = 'quiet small queue-locate-btn'; locate.textContent = 'Locate file'; locate.setAttribute('aria-label','Locate file for '+name.textContent); locate.onclick = () => mutateQueue('locate_queue_item',item.id); actions.appendChild(locate); }
-  const remove = document.createElement('button'); remove.className = 'btn folder-remove-btn'; remove.textContent = 'Remove'; remove.setAttribute('aria-label','Remove '+name.textContent); remove.onclick = () => mutateQueue('remove_queue_item',item.id); actions.appendChild(remove);
+  const needsReview = item.kind === 'file' && ['failed','review'].includes(item.status);
+  if (needsReview) {
+   for (const [label,action] of [['Preview',()=>callApi('preview_queue_item',item.id)],['Try again',()=>startItemRetry(item.id)],['Skip',()=>mutateQueue('skip_queue_item',item.id)]]) { const button = document.createElement('button'); button.className = 'quiet small queue-recovery-btn'; button.textContent = label; button.setAttribute('aria-label',label+' '+name.textContent); if (label === 'Skip') button.title = 'Keep the original file and record this item as skipped'; button.onclick = action; actions.appendChild(button); }
+  }
+  if (item.kind === 'file' && item.status === 'failed' && /locate|moved|missing|not found/i.test(item.error || '')) { const locate = document.createElement('button'); locate.className = 'quiet small queue-locate-btn'; locate.textContent = 'Locate file'; locate.setAttribute('aria-label','Locate file for '+name.textContent); locate.onclick = () => mutateQueue('locate_queue_item',item.id); actions.appendChild(locate); }
+  if (!needsReview) { const remove = document.createElement('button'); remove.className = 'btn folder-remove-btn'; remove.textContent = 'Remove'; remove.setAttribute('aria-label','Remove '+name.textContent); remove.onclick = () => mutateQueue('remove_queue_item',item.id); actions.appendChild(remove); }
   row.append(symbol,copy,status,actions); rows.appendChild(row);
  }
  $('folder-queue').replaceChildren(rows); renderQueueSaveState();
  const saveError = state.save_error || state.error || '';
  if (state.saved !== true && saveError && saveError !== lastSaveError) toast(saveError);
  lastSaveError = state.saved === true ? '' : saveError;
- if (!busy) setSummary(unavailable ? 'Saved queues unavailable' : state.total ? [state.waiting ? state.waiting+' waiting' : '',state.failed ? state.failed+' failed' : '',state.done ? state.done+' done' : ''].filter(Boolean).join(' · ') : 'Ready when you are');
- if (!busy) setProgress(state.total ? 100*((state.done || 0)+(state.failed || 0))/state.total : 0);
+ if (!busy) setSummary(unavailable ? 'Saved queues unavailable' : state.total ? [state.waiting ? state.waiting+' waiting' : '',state.failed ? state.failed+' failed' : '',state.review ? state.review+' need review' : '',state.done ? state.done+' done' : ''].filter(Boolean).join(' · ') : 'Ready when you are');
+ if (!busy) setProgress(state.total ? 100*((state.done || 0)+(state.failed || 0)+(state.review || 0))/state.total : 0);
  if (receivedItems && !busy && !queueMutationPending) showWorkspace('queue');
  updateActions();
 }
@@ -279,7 +293,7 @@ async function mutateQueue(name,...args) {
   queueMutationPending = false; renderQueueSaveState(); updateActions();
   if (restoreRowFocus && (document.activeElement === focused || document.activeElement === document.body)) {
    const rows = [...$('folder-queue').children], row = rows.find(row => row.dataset.itemId === focusedRow.dataset.itemId) || rows[Math.min(rowIndex,rows.length-1)];
-   (row?.querySelector(focused.classList.contains('queue-locate-btn') ? '.queue-locate-btn, .folder-remove-btn' : '.folder-remove-btn') || $('queue-select')).focus();
+   (row?.querySelector(focused.classList.contains('queue-locate-btn') ? '.queue-locate-btn, .queue-recovery-btn, .folder-remove-btn' : '.queue-recovery-btn, .folder-remove-btn') || $('queue-select')).focus();
   }
  }
 }
@@ -386,6 +400,7 @@ document.addEventListener('pointerdown',event => { if (!$('queue-actions-menu').
 window.addEventListener('resize',()=>closeQueueActions());
 $('new-queue-btn').onclick = () => openQueueName('create'); $('rename-queue-btn').onclick = () => openQueueName('rename');
 $('queue-select').onchange = async () => { const id = $('queue-select').value; if (!await mutateQueue('select_queue',id)) $('queue-select').value = queueState.active_id || ''; };
+$('queue-attention-btn').onclick = () => { if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return; queueAttentionOnly = !queueAttentionOnly; queuePage = 0; renderSavedQueue(queueState); document.querySelector('.operations-panel').scrollTop = 0; };
 $('queue-name-input').oninput = updateActions;
 $('queue-name-cancel-btn').onclick = () => $('queue-name-modal').close();
 $('queue-name-modal').addEventListener('close',()=>{ if (queueNameReturnFocus?.isConnected && !queueNameReturnFocus.disabled) queueNameReturnFocus.focus(); });
@@ -397,6 +412,12 @@ async function startQueueConversion(retry=false) {
  setBusy(true); setProgress(0); setSummary(retry ? 'Preparing failed items…' : 'Preparing your conversion…'); showLogPanel();
  const started = await callApi(retry ? 'retry_failed' : 'convert_staged');
  if (started !== true) { setBusy(false); setSummary('Conversion did not start. Your queue is unchanged.'); }
+}
+async function startItemRetry(id) {
+ if (busy || queueMutationPending || folderPreferencePending || queueUnavailable()) return;
+ setBusy(true); setProgress(0); setSummary('Preparing this item…'); showLogPanel();
+ const started = await callApi('retry_queue_item',id);
+ if (started !== true) { setBusy(false); setSummary('Retry did not start. Your queue is unchanged.'); }
 }
 $('convert-btn').onclick = () => startQueueConversion(); $('retry-failed-btn').onclick = () => startQueueConversion(true);
 $('abort-btn').onclick = () => { $('abort-btn').disabled = true; callApi('cancel_current_job'); };

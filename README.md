@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.4 adds an **Include subfolders** choice beside **Add folder**, remembered across restarts and applied to both folder picking and folder drops. Unreadable folders are reported, and a broken website shortcut no longer blocks neighboring files. Collect websites, documents, folders and pasted text now, close the app, and convert another day. It retains named saved queues, visible queue deletion, supervised OCR, resumable image batches, streaming spreadsheets and the redesigned Mac interface. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.5 improves image recovery: a timeout affects only the current image, quote layouts get additional local OCR attempts, and retry progress follows the selected items. **Needs attention** finds unresolved items; **Preview**, **Try again** and **Skip** let you review them while keeping successful conversions safe. Named saved queues, subfolder choices, streaming spreadsheets and the redesigned Mac interface remain available. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -107,7 +107,7 @@ That means reinstalling the app no longer removes previous converted files.
 1. Use **Files & folders** to drop files, add files, or use **Add folder** for a folder containing any supported file types. Before adding or dropping a folder, choose **Include subfolders**: checked collects supported files throughout nested folders; unchecked collects only files directly in the selected folder. The app remembers this choice; changing it leaves existing queued items unchanged. Unsupported files are ignored. Unreadable subfolders and broken website shortcuts are reported with their full paths in **Activity**; readable sources continue to be collected.
 2. Choose a name under **Saved queues** to reopen that queue immediately, or create one with **New**. Each addition is saved automatically. Selecting a queue does not start conversion.
 3. Drag website links or `.webloc` shortcuts into the app, or select **Text or URL**, paste text or one website address per line, and click **Add to queue**. Adding a link does not fetch it; the website is read when conversion starts.
-4. Click **Convert queue** to process waiting items. **Retry failed** processes unsuccessful items only. Successful items remain visible with their saved output paths; they are not converted again.
+4. Click **Convert queue** to process waiting items. **Retry failed** retries conversion errors; images where both OCR engines found no text instead need your review. Successful items remain visible with their saved output paths; they are not converted again.
 5. Use **Stop & save** to retain completed work and leave unfinished items for later. Reopen the app to find the same collection and statuses. Missing sources offer **Locate file**.
 6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
 
@@ -121,12 +121,14 @@ On a Mac installation, saved queues live in `~/Library/Application Support/MD Co
 
 The controls below remain available for image batches created before saved queues. New image batches use the queue's Convert and Retry failed controls.
 
+In saved queues, **Needs attention** shows failed items and images needing review. **Preview** opens the original file in macOS Quick Look. **Try again** retries just that item. **Skip** removes an unsuccessful file from the queue, keeps the original, and records skipped images separately in their conversion report. Images with any previously saved text cannot be skipped through this action. Empty OCR results, deadlines and processing errors are reported separately; image journals retain engine and preprocessing details for diagnosis.
+
 - Image results are saved after each file to Markdown and a neighboring `.progress.json` journal.
 - If the app closes unexpectedly, **Resume** continues pending images. Submitting the same interrupted collection again resumes it automatically.
 - **Retry failed** processes only unsuccessful images, preserving successful results and their order.
 - **Finish export** repairs interrupted Markdown or vault delivery without repeating completed OCR.
 - Missing original files do not erase text already saved. Changed images are reconverted; if replacement extraction fails, their previous text is retained in a clearly labeled section.
-- Each OCR engine has a 30-second deadline. A Vision timeout switches the remainder of that batch to Tesseract. Unreadable images are reported and the batch continues.
+- Each OCR engine has a 30-second deadline. A Vision timeout falls back to Tesseract for that image; the next image tries Vision again. Empty Tesseract results can try text-block and sparse-text layouts within the same deadline. Unreadable images are reported and the batch continues.
 - An operating-system lock protects journals from concurrent app instances. Resume updates the same Markdown and vault export.
 - Recovery works for version 0.2.0 journals. Earlier versions did not retain the records needed for automatic resume. New independent batches receive unique output filenames.
 
