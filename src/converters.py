@@ -59,7 +59,7 @@ from markdownify import markdownify as html_to_md
 from quote_markdown import render_quote_batch_markdown
 from quote_parser import extract_quote_records
 from quote_checkpoint import (QuoteCheckpoint, fingerprint, matching_checkpoint, canonical_paths,
-                              batch_lock, is_no_text_failure, NO_TEXT_MESSAGE)
+                              batch_lock, is_review_failure, NO_TEXT_MESSAGE, SUSPICIOUS_TEXT_MESSAGE)
 from spreadsheet_converter import write_xlsx_sheets
 from striprtf.striprtf import rtf_to_text
 
@@ -355,7 +355,7 @@ def _convert_image_batch(
 
     selected = [item for item in checkpoint.items if item["status"] == ("failed" if retry_failed else "pending")
                 and not item.get('skipped')
-                and (not retry_failed or selected_paths is not None or not is_no_text_failure(item))
+                and (not retry_failed or selected_paths is not None or not is_review_failure(item))
                 and (selected_paths is None or item['path'] in selected_paths)]
     processed = sum(item["status"] != "pending" and item not in selected for item in checkpoint.items)
     if processed and hooks and hooks.on_image_processed:
@@ -386,10 +386,10 @@ def _convert_image_batch(
             break
         except Exception as exc:
             code = getattr(exc, 'code', None)
-            error = NO_TEXT_MESSAGE if code == 'no_text' else str(exc)
+            error = {'no_text': NO_TEXT_MESSAGE, 'suspicious_text': SUSPICIOUS_TEXT_MESSAGE}.get(code, str(exc))
             checkpoint.complete(item, [], source_fingerprint, error=error,
                                 error_code=code, diagnostics=getattr(exc, 'diagnostics', None))
-            outcome = 'Needs review' if code == 'no_text' else 'Failed'
+            outcome = 'Needs review' if is_review_failure(item) else 'Failed'
             notice(f"{outcome}: {name}: {error}")
         processed += 1
         checkpoint.save("running")

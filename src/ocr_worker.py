@@ -29,8 +29,13 @@ def main(args=None) -> int:
         write_payload({"engine": engine, "diagnostics": details})
 
     try:
+        context = []
+        if result_path.exists():
+            context = json.loads(result_path.read_text(encoding="utf-8")).get("quality_context", [])
+            if not isinstance(context, list) or not all(isinstance(detail, dict) for detail in context):
+                raise ValueError("Invalid OCR quality context")
         reader = _ocr_with_vision if engine == "vision" else _ocr_with_tesseract
-        result = reader(Path(source), on_diagnostics=publish_diagnostics)
+        result = reader(Path(source), on_diagnostics=publish_diagnostics, quality_context=context)
         payload = {"text": result.text, "engine": result.engine, "diagnostics": result.diagnostics}
     except Exception as exc:
         details = getattr(exc, "diagnostics", None) or [

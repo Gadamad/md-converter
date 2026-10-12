@@ -12,11 +12,27 @@ from quote_parser import QuoteRecord
 
 
 NO_TEXT_MESSAGE = 'No text detected. Preview the image or skip it.'
+SUSPICIOUS_TEXT_MESSAGE = 'Uncertain OCR text. Preview the image or try again.'
+
+
+def review_failure_code(item):
+    code = item.get('error_code')
+    if code in ('no_text', 'suspicious_text'):
+        return code
+    error = str(item.get('error') or '')
+    if error.startswith('No text detected'):
+        return 'no_text'
+    if error.startswith('Uncertain OCR text.'):
+        return 'suspicious_text'
+    return None
+
+
+def is_review_failure(item):
+    return review_failure_code(item) is not None
 
 
 def is_no_text_failure(item):
-    return (item.get('error_code') == 'no_text'
-            or str(item.get('error', '')).startswith('No text detected'))
+    return review_failure_code(item) == 'no_text'
 
 
 def fingerprint(path: str) -> str | None:
@@ -80,6 +96,13 @@ class QuoteCheckpoint:
                 raise ValueError('Invalid OCR diagnostics')
             if 'skipped' in item and not isinstance(item['skipped'], bool):
                 raise ValueError('Invalid skipped image flag')
+            if 'verified_records' in item and (not isinstance(item['verified_records'], list)
+                    or any(type(index) is not int or not 0 <= index < len(item['records'])
+                           for index in item['verified_records'])):
+                raise ValueError('Invalid source verification indices')
+            if 'correction_history' in item and (not isinstance(item['correction_history'], list)
+                    or not all(isinstance(entry, dict) for entry in item['correction_history'])):
+                raise ValueError('Invalid quote correction history')
             if item.get('skipped') and (item['status'] != 'failed' or item['records']
                                         or item.get('previous_records')):
                 raise ValueError('Only unsuccessful images without saved text can be skipped')
@@ -121,6 +144,7 @@ class QuoteCheckpoint:
             current = fingerprint(item['path'])
             if current is not None and current != item['fingerprint']:
                 item.update(status='pending', previous_records=item['records'], records=[], fingerprint=None)
+                item.pop('verified_records', None)
         self.refresh()
 
     def complete(self, item, records, source_fingerprint, error=None, *,
@@ -128,6 +152,7 @@ class QuoteCheckpoint:
         item.update(status='failed' if error is not None else 'success',
                     records=[asdict(record) for record in records], fingerprint=source_fingerprint)
         item.pop('skipped', None)
+        item.pop('verified_records', None)
         item.pop('error_code', None)
         item.pop('diagnostics', None)
         if isinstance(diagnostics, list):
@@ -181,9 +206,19 @@ class QuoteCheckpoint:
         # Commit the journal first. A crash before Markdown replacement is repaired
         # by rendering saved records on the next resume, without repeating OCR.
         atomic_write_text(self.report_path, json.dumps(self.report, indent=2) + '\n')
-        markdown = render_quote_batch_markdown(self.records, raw_ocr_mode=self.raw_ocr_mode)
+        verified_indices = set()
+        offset = 0
+        for item in self.items:
+            verified_indices.update(offset + index + 1 for index in item.get('verified_records', []))
+            offset += len(item['records'])
+        markdown = render_quote_batch_markdown(self.records, raw_ocr_mode=self.raw_ocr_mode,
+                                               verified_indices=frozenset(verified_indices))
         markdown += f"\n---\n\n## Conversion report\n\nStatus: {status}\n\n"
         markdown += f"Processed: {self.report['processed']}/{self.report['total']} images\n"
+        if verified_indices:
+            count = len(verified_indices)
+            markdown += (f"\nVerified against original images: {count} quote{'s' if count != 1 else ''}. "
+                         "Original OCR is retained in the conversion journal.\n")
         for failure in self.report['failed']:
             markdown += f"\n- Failed: {failure['image']} — {failure['error']}\n"
         for skipped in self.report['skipped']:

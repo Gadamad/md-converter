@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.5 improves image recovery: a timeout affects only the current image, quote layouts get additional local OCR attempts, and retry progress follows the selected items. **Needs attention** finds unresolved items; **Preview**, **Try again** and **Skip** let you review them while keeping successful conversions safe. Named saved queues, subfolder choices, streaming spreadsheets and the redesigned Mac interface remain available. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.6 checks suspicious OCR punctuation and character runs before accepting quote text. It tries alternate readings and sends unresolved text to **Needs review** while continuing the batch. Hungarian accents and other languages are preserved; text is never repaired by stripping diacritics. Queues now use compact rows, with a dashboard **Show source details** checkbox for full URLs and file paths. **Open** on completed files shows the original; completed links and pasted text open their saved Markdown. Named queues, image recovery and the subfolder choice remain available. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 

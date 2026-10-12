@@ -70,6 +70,7 @@ class Preferences:
     output_dir: Path | None = None
     auto_open_output: bool = DEFAULT_AUTO_OPEN_OUTPUT
     include_subfolders: bool = DEFAULT_INCLUDE_SUBFOLDERS
+    show_source_details: bool = False
 
     def __post_init__(self) -> None:
         if self.theme not in THEME_CHOICES:
@@ -78,6 +79,8 @@ class Preferences:
             raise ValueError(f"Invalid raw OCR mode: {self.raw_ocr_mode}")
         if not isinstance(self.include_subfolders, bool):
             raise ValueError('Include subfolders must be a boolean.')
+        if not isinstance(self.show_source_details, bool):
+            raise ValueError('Show source details must be a boolean.')
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -86,6 +89,7 @@ class Preferences:
             "output_dir": str(self.output_dir) if self.output_dir is not None else None,
             "auto_open_output": self.auto_open_output,
             "include_subfolders": self.include_subfolders,
+            "show_source_details": self.show_source_details,
         }
 
     @classmethod
@@ -97,6 +101,8 @@ class Preferences:
             auto_open_output=_parse_auto_open_output(data.get("auto_open_output", DEFAULT_AUTO_OPEN_OUTPUT)),
             include_subfolders=(data['include_subfolders'] if isinstance(data.get('include_subfolders'), bool)
                                 else DEFAULT_INCLUDE_SUBFOLDERS),
+            show_source_details=(data['show_source_details'] if isinstance(data.get('show_source_details'), bool)
+                                 else False),
         )
 
     def save(self, path: Path) -> None:

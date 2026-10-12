@@ -411,6 +411,11 @@ class Api(SavedQueueApi):
         finally:
             self._job_lock.release()
 
+    def set_show_source_details(self, enabled):
+        if not isinstance(enabled, bool):
+            raise ValueError('Show source details must be a boolean.')
+        return self.save_preferences({'show_source_details': enabled})
+
     def browse_output_directory(self):
         if not self.window:
             return None

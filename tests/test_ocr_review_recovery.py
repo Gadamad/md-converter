@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import converters
 from image_ocr import (OcrBackendUnavailable, OcrCancelled, OcrNoTextDetected,
-                       OcrProcessingError, OcrResult, OcrTimeout)
+                       OcrProcessingError, OcrResult, OcrSuspiciousText, OcrTimeout)
 from quote_checkpoint import QuoteCheckpoint, fingerprint
 from quote_parser import QuoteRecord
 from queue_runner import QueueRunner
@@ -123,6 +123,69 @@ def test_global_retry_skips_review_items_in_old_and_new_journals(tmp_path, monke
     assert calls == [Path(checkpoint.items[2]['path']).name]
     assert updated.items[0] == saved_record
     assert updated.items[1]['error'] == NO_TEXT
+
+
+def test_uncertain_text_stays_in_review_metadata_and_batch_continues(tmp_path, monkeypatch):
+    checkpoint = seed_batch(tmp_path, ['success', 'pending', 'pending'])
+    saved_record = copy.deepcopy(checkpoint.items[0])
+    candidate = 'You can take one step todayạ'
+    details = [{'engine': 'vision', 'variant': 'original', 'status': 'suspicious_text',
+                'candidate_text': candidate, 'quality_reasons': [{'reason': 'anomalous_latin_run'}]}]
+    outcomes = iter([OcrSuspiciousText(diagnostics=details), OcrResult('Another clear quote.', 'vision')])
+    def extract(*args, **kwargs):
+        result = next(outcomes)
+        if isinstance(result, Exception):
+            raise result
+        return result
+    monkeypatch.setattr(converters, 'ocr_image', extract)
+    notices = []
+    converters.convert_image_folder_quotes([item['path'] for item in checkpoint.items],
+        checkpoint.path.parent, checkpoint_path=checkpoint.report_path,
+        hooks=converters.QuoteBatchHooks(on_status=notices.append))
+    updated = QuoteCheckpoint.load(checkpoint.report_path)
+    assert updated.items[0] == saved_record
+    uncertain = updated.items[1]
+    assert uncertain['records'] == [] and uncertain['error_code'] == 'suspicious_text'
+    assert uncertain['error'].startswith('Uncertain OCR text.')
+    assert uncertain['diagnostics'] == details
+    assert notices[-1].startswith('Needs review:')
+    assert updated.items[2]['status'] == 'success'
+    assert candidate not in checkpoint.path.read_text()
+    updated.mark_skipped(uncertain['path'])
+    assert QuoteCheckpoint.load(checkpoint.report_path).items[1]['diagnostics'] == details
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+def test_uncertain_review_global_retry_excluded_but_explicit_retry_allowed(tmp_path, monkeypatch, explicit):
+    checkpoint = seed_batch(tmp_path, ['success', 'failed', 'failed', 'failed'])
+    checkpoint.items[1].update(error='Legacy diagnostic', error_code='suspicious_text')
+    checkpoint.items[2]['error'] = 'Uncertain OCR text. Preview the image or try again.'
+    checkpoint.save('completed_with_errors')
+    saved_record = copy.deepcopy(checkpoint.items[0])
+    store = queue_batch(tmp_path, checkpoint)
+    calls = []
+    def extract(path, **kwargs):
+        calls.append(str(path))
+        return OcrResult('Recovered text.', 'vision')
+    monkeypatch.setattr(converters, 'ocr_image', extract)
+    selection = {store.items(store.active_id)[1]['id']} if explicit else None
+    run_queue(tmp_path, store).run(store.active_id, retry_failed=True, selected_ids=selection)
+    assert calls == [checkpoint.items[1 if explicit else 3]['path']]
+    assert QuoteCheckpoint.load(checkpoint.report_path).items[0] == saved_record
+
+
+def test_direct_batch_global_retry_excludes_uncertain_text(tmp_path, monkeypatch):
+    checkpoint = seed_batch(tmp_path, ['failed', 'failed'])
+    checkpoint.items[0].update(error='Uncertain OCR text.', error_code='suspicious_text')
+    checkpoint.save('completed_with_errors')
+    calls = []
+    def extract(path, **kwargs):
+        calls.append(str(path))
+        return OcrResult('Recovered text.', 'vision')
+    monkeypatch.setattr(converters, 'ocr_image', extract)
+    converters.convert_image_folder_quotes([item['path'] for item in checkpoint.items],
+        checkpoint.path.parent, checkpoint_path=checkpoint.report_path, retry_failed=True)
+    assert calls == [checkpoint.items[1]['path']]
 
 
 def test_mark_skipped_is_durable_idempotent_and_preserves_saved_quotes(tmp_path):

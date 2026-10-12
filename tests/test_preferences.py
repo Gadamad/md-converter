@@ -53,7 +53,7 @@ class PreferencesSerializationTests(unittest.TestCase):
         data = prefs.to_dict()
         self.assertEqual(
             set(data.keys()),
-            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders"},
+            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders", "show_source_details"},
         )
 
     def test_round_trip_preserves_values(self):

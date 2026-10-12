@@ -10,7 +10,7 @@ import time
 from queue_sources import normalize_url, sources_from_text, read_webloc
 from queue_store import QueueStore
 from queue_runner import QueueRunner
-from quote_checkpoint import QuoteCheckpoint, batch_lock
+from quote_checkpoint import QuoteCheckpoint, batch_lock, review_failure_code
 
 
 class SavedQueueApi:
@@ -59,7 +59,7 @@ class SavedQueueApi:
 
     @staticmethod
     def _needs_review(item):
-        return item['status'] == 'failed' and (item.get('error') or '').startswith('No text detected')
+        return item['status'] == 'failed' and review_failure_code(item) is not None
 
     @classmethod
     def _decorate_review_state(cls, state):
@@ -68,7 +68,7 @@ class SavedQueueApi:
         state['review'] = 0
         for item in state['items']:
             if cls._needs_review(item):
-                item.update(status='review', error_code='no_text')
+                item.update(status='review', error_code=review_failure_code(item))
                 state['review'] += 1
         state['failed'] -= state['review']
 
@@ -290,6 +290,24 @@ class SavedQueueApi:
         if not path.is_file():
             raise FileNotFoundError('Source file is missing. Use Locate file to reconnect it.')
         subprocess.Popen(['qlmanage', '-p', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+
+    def open_queue_item(self, item_id):
+        """Open a source file or a completed link/text's saved Markdown."""
+        item = self._active_item(item_id)
+        if item['status'] != 'done':
+            raise ValueError('Open is available for completed items. Use Preview for items needing review.')
+        if item['kind'] == 'file':
+            path = Path(item['source'])
+            if not path.is_file():
+                raise FileNotFoundError('Source file is missing or has moved. The converted output is still saved.')
+        else:
+            if not item['output_path']:
+                raise FileNotFoundError('The saved output is unavailable. Use Open output to inspect the output folder.')
+            path = Path(item['output_path'])
+            if not path.is_file():
+                raise FileNotFoundError('The saved output is missing or has moved.')
+        subprocess.Popen(['/usr/bin/open', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
 
     def retry_queue_item(self, item_id):

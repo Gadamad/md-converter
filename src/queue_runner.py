@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from file_utils import atomic_write_chunks, atomic_write_text
-from quote_checkpoint import QuoteCheckpoint, batch_lock, is_no_text_failure
+from quote_checkpoint import QuoteCheckpoint, batch_lock, is_review_failure
 
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
@@ -61,7 +61,7 @@ class QueueRunner:
                     if selected_ids is not None:
                         raise ValueError('Skipped images cannot be retried')
                     continue
-                if retry_failed and selected_ids is None and (is_no_text_failure(item) or is_no_text_failure(record)):
+                if retry_failed and selected_ids is None and (is_review_failure(item) or is_review_failure(record)):
                     continue
                 selected.append(item)
             unconfigured = [item['id'] for item in selected if not item['options']]

@@ -56,20 +56,30 @@ def test_no_text_is_decorated_as_review_without_changing_sqlite(api, tmp_path):
     assert api._queue_store.items(api._queue_store.active_id) == stored
 
 
-def test_global_retry_does_not_start_when_only_review_items_remain(api, tmp_path):
-    add_file(api, tmp_path/'empty.png')
+@pytest.mark.parametrize('error', ['No text detected in this image.', 'Uncertain OCR text. Preview the image.'])
+def test_global_retry_does_not_start_when_only_review_items_remain(api, tmp_path, error):
+    add_file(api, tmp_path/'empty.png', error=error)
     with mock.patch.object(api, '_start_job') as start:
         assert api.retry_failed() is False
     start.assert_not_called()
 
 
-@pytest.mark.parametrize('error', ['No text detected in this image.', 'Engine failed'])
+@pytest.mark.parametrize('error', ['No text detected in this image.', 'Uncertain OCR text.', 'Engine failed'])
 def test_single_retry_selects_only_requested_failed_or_review_item(api, tmp_path, error):
     target = add_file(api, tmp_path/'target.png', error=error)
     add_file(api, tmp_path/'other.png', error='Engine failed')
     with mock.patch.object(api, '_start_job', return_value=True) as start:
         assert api.retry_queue_item(target['id']) is True
     start.assert_called_once_with(api._queue_worker, target['queue_id'], True, {target['id']})
+
+
+def test_uncertain_ocr_is_review_without_mutating_durable_status(api, tmp_path):
+    item = add_file(api, tmp_path/'uncertain.png', error='Uncertain OCR text. Preview the image or try again.')
+    state = api.get_queue_state()
+    assert state['review'] == 1 and state['failed'] == 0
+    assert state['items'][0]['status'] == 'review'
+    assert state['items'][0]['error_code'] == 'suspicious_text'
+    assert api._queue_store.get_item(item['id'])['status'] == 'failed'
 
 
 @pytest.mark.parametrize('status', ['done', 'waiting', 'processing'])

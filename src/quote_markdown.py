@@ -42,6 +42,7 @@ def render_quote_batch_markdown(
     records: Iterable[QuoteRecord],
     title: str = "Extracted Quotes",
     raw_ocr_mode: RawOcrMode = "different",
+    verified_indices: frozenset[int] = frozenset(),
 ) -> str:
     ordered = list(records)
     lines = [f"# {title}", ""]
@@ -61,7 +62,9 @@ def render_quote_batch_markdown(
         show_raw = raw_ocr_mode == "always" or (
             raw_ocr_mode == "different" and not _raw_ocr_effectively_same(record)
         )
-        if show_raw:
+        # A visually verified quote has a preserved journal audit. Showing its
+        # known-bad legacy OCR again would obscure the corrected transcription.
+        if show_raw and index not in verified_indices:
             lines.extend(["**Raw OCR:**", record.raw_ocr, ""])
 
     return "\n".join(lines).strip() + "\n"

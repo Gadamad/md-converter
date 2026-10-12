@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 
 
 class OcrError(RuntimeError):
@@ -40,6 +41,13 @@ class OcrNoTextDetected(OcrError):
     code = "no_text"
 
     def __init__(self, message="No text detected.", diagnostics=None):
+        super().__init__(message, diagnostics)
+
+
+class OcrSuspiciousText(OcrError):
+    code = "suspicious_text"
+
+    def __init__(self, message="Uncertain OCR text. Preview the image or try again.", diagnostics=None):
         super().__init__(message, diagnostics)
 
 
@@ -129,11 +137,13 @@ def _failure_detail(engine, variant, started, status, exc=None, **extra):
 
 
 def _run_backend(engine: str, path: Path, *, timeout: float = OCR_TIMEOUT_SECONDS,
-                 should_cancel=None) -> OcrResult:
+                 should_cancel=None, quality_context=None) -> OcrResult:
     if should_cancel and should_cancel():
         raise OcrCancelled("OCR canceled")
     with tempfile.TemporaryDirectory(prefix="md-converter-ocr-") as directory:
         result_path = Path(directory) / "result.json"
+        if quality_context:
+            result_path.write_text(json.dumps({"quality_context": quality_context}), encoding="utf-8")
         started = time.monotonic()
         deadline = started + timeout
         with open(Path(directory) / "stderr.log", "w+") as stderr:
@@ -171,7 +181,8 @@ def _run_backend(engine: str, path: Path, *, timeout: float = OCR_TIMEOUT_SECOND
                     payload = json.loads(result_path.read_text(encoding="utf-8"))
                     details = _payload_diagnostics(payload)
                     if payload.get("error"):
-                        error_type = {"no_text": OcrNoTextDetected, "timeout": OcrTimeout,
+                        error_type = {"no_text": OcrNoTextDetected, "suspicious_text": OcrSuspiciousText,
+                                      "timeout": OcrTimeout,
                                       "processing_error": OcrProcessingError,
                                       "unavailable": OcrBackendUnavailable}.get(payload.get("code"), OcrBackendUnavailable)
                         raise error_type(str(payload["error"]), details)
@@ -198,15 +209,27 @@ def ocr_image(path: Path | str, *, should_cancel=None, session: OcrSession | Non
     errors = []
     diagnostics = []
     for engine in ("vision", "tesseract"):
+        started = time.monotonic()
         try:
-            result = _run_backend(engine, Path(path), timeout=timeout, should_cancel=should_cancel)
-            return OcrResult(result.text, result.engine, diagnostics + result.diagnostics)
+            context = [detail for detail in diagnostics if detail.get("status") == "suspicious_text"]
+            result = _run_backend(engine, Path(path), timeout=timeout, should_cancel=should_cancel,
+                                  **({"quality_context": context} if context else {}))
+            details = diagnostics + result.diagnostics
+            reasons = _text_quality_reasons(result.text) + _truncation_reasons(result.text, details)
+            if reasons:
+                details.append(_failure_detail(engine, "backend", started, "suspicious_text",
+                                               candidate_text=result.text, quality_reasons=reasons))
+                # Earlier backends' diagnostics are already in the aggregate.
+                raise OcrSuspiciousText(diagnostics=details[len(diagnostics):])
+            return OcrResult(result.text, result.engine, details)
         except OcrError as exc:
             errors.append((engine, exc))
             diagnostics.extend(exc.diagnostics)
             if engine == "vision":
                 if on_status:
                     on_status(f"{exc}; trying Tesseract")
+    if any(detail.get("status") == "suspicious_text" for detail in diagnostics):
+        raise OcrSuspiciousText(diagnostics=diagnostics)
     if all(isinstance(exc, OcrNoTextDetected) for _, exc in errors):
         raise OcrNoTextDetected(diagnostics=diagnostics)
     failure_type = OcrBackendUnavailable
@@ -231,7 +254,7 @@ def tesseract_executable() -> str:
     raise OcrBackendUnavailable("Tesseract is not installed (brew install tesseract)")
 
 
-def _ocr_with_vision(path: Path, *, on_diagnostics=None, deadline=None) -> OcrResult:
+def _ocr_with_vision(path: Path, *, on_diagnostics=None, deadline=None, quality_context=None) -> OcrResult:
     try:
         from Foundation import NSURL
         import Vision
@@ -265,10 +288,10 @@ def _ocr_with_vision(path: Path, *, on_diagnostics=None, deadline=None) -> OcrRe
         return "\n".join(lines)
 
     return _best_text_from_variants(path, reader, engine="vision", deadline=deadline,
-                                    on_diagnostics=on_diagnostics)
+                                    on_diagnostics=on_diagnostics, quality_context=quality_context)
 
 
-def _ocr_with_tesseract(path: Path, *, on_diagnostics=None, deadline=None) -> OcrResult:
+def _ocr_with_tesseract(path: Path, *, on_diagnostics=None, deadline=None, quality_context=None) -> OcrResult:
     try:
         import pytesseract
         from PIL import Image
@@ -292,7 +315,7 @@ def _ocr_with_tesseract(path: Path, *, on_diagnostics=None, deadline=None) -> Oc
 
     return _best_text_from_variants(path, reader, engine="tesseract", deadline=deadline,
                                     configs=("", "--psm 6", "--psm 11"),
-                                    on_diagnostics=on_diagnostics)
+                                    on_diagnostics=on_diagnostics, quality_context=quality_context)
 
 
 def _text_from_recovery_data(data: dict) -> _ReaderResult:
@@ -333,11 +356,64 @@ def _looks_readable(text: str) -> bool:
     return len(words) >= 3 and sum(map(len, words)) >= 12
 
 
+def _vietnamese_syllable(word: str) -> bool:
+    # These vowels are meaningful language, not characters to remove. A natural
+    # Vietnamese syllable can have one tone plus a vowel-shape accent.
+    decomposed = unicodedata.normalize("NFD", word)
+    tones = sum(character in "\u0300\u0301\u0303\u0309\u0323" for character in decomposed)
+    plain = "".join(character for character in decomposed if not unicodedata.combining(character))
+    if tones > 1 or not (word.islower() or word.isupper() or word.istitle()):
+        return False
+    return bool(re.fullmatch(r"(?:ngh|ch|gh|gi|kh|ng|nh|ph|qu|th|tr|[bcdđghklmnpqrstvx])?"
+                             r"[aeiouy]{1,3}(?:ch|ng|nh|[cmnpt])?", plain.casefold()))
+
+
+def _text_quality_reasons(text: str) -> list[dict]:
+    """Flag anomalous Latin runs without rewriting accents or other languages."""
+    normalized = unicodedata.normalize("NFC", text)
+    words = list(re.finditer(r"[^\W\d_]+", normalized))
+    context = {match.group().casefold() for match in words}
+    english_hungarian = {"the", "you", "your", "and", "that", "when", "with", "to", "of", "is",
+                         "it", "not", "be", "for", "az", "egy", "és", "hogy", "nem", "ha", "aki", "van"}
+    contextual = len(context & english_hungarian) >= 2
+    reasons = []
+    ordinary = r"A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű"
+    noise = r"iI\u1ea0-\u1ef9"
+    for match in words:
+        word = match.group()
+        rare = [character for character in word if 0x1EA0 <= ord(character) <= 0x1EF9]
+        if not rare:
+            continue
+        punctuation_run = all(character in "iI" or 0x1EA0 <= ord(character) <= 0x1EF9 for character in word)
+        boundary_run = (re.fullmatch(f"[{noise}]+[{ordinary}]{{2,}}", word)
+                        or re.fullmatch(f"[{ordinary}]{{2,}}[{noise}]+", word))
+        # A diacritic inside an ordinary multilingual word is not punctuation.
+        # An isolated one-letter word is also ambiguous unless it is attached
+        # directly to punctuation in an English/Hungarian sentence.
+        attached = match.start() > 0 and normalized[match.start() - 1] in ".,;:!?"
+        suspicious_standalone = punctuation_run and contextual and (len(word) > 1 or attached)
+        if (boundary_run and not _vietnamese_syllable(word)) or suspicious_standalone:
+            reasons.append({"reason": "anomalous_latin_run", "token": word})
+    return reasons
+
+
+def _truncation_reasons(text: str, diagnostics: list[dict]) -> list[dict]:
+    count = len(re.findall(r"[^\W\d_]+", text))
+    previous = [len(re.findall(r"[^\W\d_]+", detail["candidate_text"]))
+                for detail in diagnostics if detail.get("status") == "suspicious_text"
+                and isinstance(detail.get("candidate_text"), str)]
+    longest = max(previous, default=0)
+    if count < longest * 0.7 and longest - count > 2:
+        return [{"reason": "possibly_truncated", "candidate_words": count, "previous_words": longest}]
+    return []
+
+
 def _best_text_from_variants(path: Path, reader, *, engine: str, configs=("",),
-                             deadline=None, on_diagnostics=None) -> OcrResult:
+                             deadline=None, on_diagnostics=None, quality_context=None) -> OcrResult:
     started = time.monotonic()
     deadline = started + OCR_TIMEOUT_SECONDS if deadline is None else deadline
     diagnostics = []
+    quality_context = quality_context or []
     candidate_texts: list[str] = []
     failures = []
 
@@ -378,6 +454,13 @@ def _best_text_from_variants(path: Path, reader, *, engine: str, configs=("",),
                     continue
                 diagnostics[-1] = _failure_detail(engine, variant, attempt_started,
                                                   "text" if text else "no_text", **extra)
+                if text:
+                    reasons = _text_quality_reasons(text) + _truncation_reasons(text, quality_context + diagnostics)
+                    if reasons:
+                        diagnostics[-1].update(status="suspicious_text", candidate_text=text,
+                                               quality_reasons=reasons)
+                        publish()
+                        continue
                 publish()
                 if text:
                     candidate_texts.append(text)
@@ -394,12 +477,24 @@ def _best_text_from_variants(path: Path, reader, *, engine: str, configs=("",),
         publish()
     finally:
         variants.close()
-    if not candidate_texts:
+    # A weak earlier reading must not bypass a fuller suspect reading observed
+    # later. Keep it for inspection rather than silently publishing a fragment.
+    trustworthy = []
+    for text in candidate_texts:
+        reasons = _truncation_reasons(text, quality_context + diagnostics)
+        if reasons:
+            diagnostics.append(_failure_detail(engine, "selection", started, "suspicious_text",
+                                               candidate_text=text, quality_reasons=reasons))
+        else:
+            trustworthy.append(text)
+    if not trustworthy:
+        if any(detail.get("status") == "suspicious_text" for detail in diagnostics):
+            raise OcrSuspiciousText(diagnostics=diagnostics)
         if failures:
             raise OcrProcessingError(f"{engine} could not process the image: " +
                                      "; ".join(dict.fromkeys(str(exc) for exc in failures)), diagnostics)
         raise OcrNoTextDetected(f"{engine} returned no text", diagnostics)
-    return OcrResult(max(candidate_texts, key=_score_text), engine, diagnostics)
+    return OcrResult(max(trustworthy, key=_score_text), engine, diagnostics)
 
 
 def _iter_variant_paths(path: Path):
