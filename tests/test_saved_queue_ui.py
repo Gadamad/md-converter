@@ -63,6 +63,22 @@ const fs = require('node:fs');
   const page = await browser.newPage({viewport:{width:640,height:640}});
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.setContent(html);
+  async function checkFooterLayout(context) {
+   const bounds=await page.evaluate(()=>{
+    const rect=element=>{const bounds=element.getBoundingClientRect();return {left:bounds.left,right:bounds.right,top:bounds.top,bottom:bounds.bottom,centerY:(bounds.top+bounds.bottom)/2};};
+    const footer=document.querySelector('footer');
+    return {copyCheckbox:rect(document.getElementById('copy-subfolder-cb')),vaultCheckbox:rect(document.getElementById('vault-cb')),copyGroup:rect(document.querySelector('.copy-destination')),actions:rect(document.querySelector('.action-row')),actionButtons:[...document.querySelectorAll('.action-row > button')].filter(element=>element.getClientRects().length).map(rect),footer:rect(footer),controls:[...footer.querySelectorAll('input,button')].filter(element=>element.getClientRects().length).map(element=>({id:element.id,...rect(element)})),bodyWidth:document.body.scrollWidth,documentWidth:document.documentElement.scrollWidth,width:innerWidth,height:innerHeight};
+   });
+   assert.ok(Math.abs(bounds.copyCheckbox.centerY-bounds.vaultCheckbox.centerY)<=1,`${context}: save-option checkbox centers must align within 1px (${bounds.copyCheckbox.centerY} vs ${bounds.vaultCheckbox.centerY})`);
+   assert.ok(bounds.actions.top>=bounds.copyGroup.bottom,`${context}: action buttons must sit below the named-folder group`);
+   assert.ok(Math.abs(Math.max(...bounds.actionButtons.map(button=>button.right))-bounds.footer.right)<=1,`${context}: action buttons must align to the footer's right edge`);
+   assert.ok(bounds.bodyWidth<=bounds.width && bounds.documentWidth<=bounds.width,`${context}: footer must not cause horizontal overflow`);
+   assert.ok(bounds.footer.top>=0 && bounds.footer.bottom<=bounds.height,`${context}: the full footer must stay inside the window`);
+   for (const control of bounds.controls) {
+    assert.ok(control.left>=bounds.footer.left && control.right<=bounds.footer.right,`${context}: ${control.id} must fit the footer width`);
+    assert.ok(control.top>=bounds.footer.top && control.bottom<=bounds.footer.bottom,`${context}: ${control.id} must not be clipped by the footer`);
+   }
+  }
   await page.evaluate(() => {
    window.testCalls=[];
    window.testQueue={active_id:'inbox',queues:[{id:'inbox',name:'Inbox'}],items:[],waiting:0,failed:0,done:0,total:0,busy:false,saved:true};
@@ -102,6 +118,7 @@ const fs = require('node:fs');
   assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['set_copy_subfolder','Árvíztűrő jegyzetek']);
   assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Árvíztűrő jegyzetek');
   assert.equal(await page.locator('#destination-path').textContent(),'/tmp/exports','The normal output destination stays unchanged');
+  await checkFooterLayout('640×640 enabled named-folder copy');
   await page.evaluate(()=>{renderSavedQueue({...window.testQueue,items:[{id:'sizing',kind:'file',title:'missing.pdf',source:'/tmp/missing.pdf',status:'failed',error:'Locate this file to continue.'}],total:1,failed:1});switchSource('text');});
   assert.ok(await page.evaluate(()=>document.querySelector('.operations-panel').getBoundingClientRect().height>=64),'The named-copy row must leave a usable queue viewport at 640×640');
   await page.evaluate(()=>{renderSavedQueue(window.testQueue);switchSource('files');});
@@ -432,6 +449,30 @@ const fs = require('node:fs');
   await page.getByRole('button',{name:'Open original Saved quote.jpg',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['open_queue_item','kept']);
   assert.equal(await page.locator('.queue-status.done').textContent(),'Done','Open must preserve the completed entry');
+  for (const viewport of [{width:640,height:640},{width:820,height:780}]) {
+   await page.setViewportSize(viewport);
+   for (const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark']]) {
+    await page.emulateMedia({colorScheme});
+    for (const state of ['ready','retry','stop']) {
+     await page.evaluate(({theme,state})=>{
+      setBusy(false);hideAbortButton();
+      applyPreferences({...savedPreferences,theme,copy_subfolder:'Árvíztűrő jegyzetek'});
+      const outputDir='/Users/test/SynologyDrive/Research archive/Converted Markdown/Very long destination folder';
+      renderApplicationState({...applicationState,output_dir:outputDir,copy_dir:outputDir+'/Árvíztűrő jegyzetek',copy_error:'',vault_configured:true,queue:{active_id:'footer',queues:[{id:'footer',name:'Footer layout'}],items:[{id:'waiting',kind:'file',title:'Document.pdf',source:'/tmp/Document.pdf',status:'waiting'},...(state==='retry'?[{id:'failed',kind:'file',title:'Missing.pdf',source:'/tmp/Missing.pdf',status:'failed',error:'File moved. Locate it to continue.'}]:[])],total:state==='retry'?2:1,waiting:1,failed:state==='retry'?1:0,done:0,review:0,busy:false,saved:true}});
+      if(state==='stop') {setBusy(true);showAbortButton();}
+      document.getElementById('toast').hidden=true;
+     },{theme,state});
+     assert.equal(await page.locator('#retry-failed-btn').isVisible(),state==='retry');
+     assert.equal(await page.locator('#abort-btn').isVisible(),state==='stop');
+     assert.equal(await page.locator('#convert-btn').isVisible(),state!=='stop');
+     await checkFooterLayout(`${viewport.width}×${viewport.height} ${theme}/${colorScheme} ${state}`);
+     if(process.env.FOOTER_SCREENSHOT_DIR && theme!=='system') {
+      fs.mkdirSync(process.env.FOOTER_SCREENSHOT_DIR,{recursive:true});
+      await page.screenshot({path:`${process.env.FOOTER_SCREENSHOT_DIR}/footer-${viewport.width}x${viewport.height}-${theme}-${state}.png`});
+     }
+    }
+   }
+  }
   assert.deepEqual(errors,[]);
   console.log('Queue browser checks passed');
  } finally { await browser.close(); }

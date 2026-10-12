@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.7 adds **Save to a named folder** on the dashboard. Tick it, enter a folder name and keep an extra copy of finished Markdown inside the current Save to location. Regular outputs remain saved. Copy retries reuse saved conversions and preserve existing destination files. Suspicious OCR checks, Hungarian accents, compact queues, source details, Open actions and image recovery remain available. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.3.8 aligns the named-folder and Obsidian copy options together above the output and conversion buttons. Tick **Save to a named folder**, enter a folder name and keep an extra copy of finished Markdown inside the current Save to location. Regular outputs remain saved. Copy retries reuse saved conversions and preserve existing destination files. Suspicious OCR checks, Hungarian accents, compact queues, source details, Open actions and image recovery remain available. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 

@@ -74,11 +74,12 @@ textarea::placeholder { color:var(--muted); }
 #summary { font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--muted); } #progress-label { font-size:11px; font-variant-numeric:tabular-nums; color:var(--muted); }
 .progress-track { margin:0 16px 13px; height:4px; border-radius:8px; overflow:hidden; background:var(--soft); flex:none; } #progress { width:0; height:100%; background:var(--accent); transition:width .18s; border-radius:8px; }
 .destination { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; margin:0 0 12px; } .destination svg { width:15px; height:15px; } #destination-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; } .destination button { padding:0 3px; min-height:24px; font-size:12px; color:var(--accent); }
-.copy-destination { display:flex; align-items:center; gap:9px; min-height:26px; margin:-6px 0 9px; font-size:12px; color:var(--muted); }
+.save-options { display:flex; align-items:center; gap:24px; margin:-6px 0 12px; }
+.copy-destination { display:flex; align-items:center; gap:9px; min-height:26px; flex:1; min-width:0; font-size:12px; color:var(--muted); }
 .copy-destination label { display:flex; align-items:center; gap:7px; white-space:nowrap; cursor:pointer; } .copy-destination input { margin:0; flex:none; }
 #copy-destination-path { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; } #copy-destination-path.error { color:var(--danger); }
 #copy-folder-change-btn { min-height:24px; padding:0 3px; font-size:12px; color:var(--accent); }
-.action-row > button { min-height:42px; } .action-row { display:flex; align-items:center; gap:8px; } .vault-option { margin-right:auto; display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); } input[type="checkbox"] { width:15px; height:15px; accent-color:var(--accent); }
+.action-row > button { min-height:42px; } .action-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; } .vault-option { display:flex; align-items:center; gap:7px; min-height:26px; flex:none; font-size:12px; white-space:nowrap; color:var(--muted); } input[type="checkbox"] { width:15px; height:15px; accent-color:var(--accent); } .save-options input { margin:0; flex:none; }
 #badge { display:none; } .visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 #preferences-modal { width:min(530px,calc(100vw - 48px)); border:1px solid var(--line); border-radius:16px; padding:0; color:var(--ink); background:var(--surface); box-shadow:var(--shadow); max-height:90vh; }
 #preferences-modal::backdrop { background:#10181377; backdrop-filter:blur(4px); } .modal-header { display:flex; justify-content:space-between; align-items:center; padding:20px 22px; border-bottom:1px solid var(--line); } h2 { margin:0; font-size:18px; letter-spacing:-.3px; }
@@ -93,7 +94,7 @@ textarea::placeholder { color:var(--muted); }
 #toast { position:fixed; bottom:88px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:9px; font-size:13px; box-shadow:var(--shadow); max-width:85%; z-index:5; }
 @media(max-height:730px) { .app { padding-top:18px; gap:12px; } .drop-zone { min-height:94px; padding:10px; } .bottom { padding-bottom:16px; }  textarea { height:110px; } }
 @media(max-height:700px) { .app { gap:10px; } .source-heading { margin-bottom:8px; } .drop-zone { min-height:72px; padding:8px; } .drop-symbol { display:none; } textarea { height:76px; } .workspace-toolbar { min-height:42px; } .queue-toolbar { padding-top:8px; padding-bottom:8px; } .bottom { padding-bottom:12px; } }
-@media(max-width:680px) { .app { padding-left:20px; padding-right:20px; } .local-note { display:none; } .input-hint { font-size:11px; } .action-row { gap:6px; flex-wrap:wrap; } .vault-option { font-size:11px; } button.primary { min-width:130px; } .queue-row { gap:9px; padding:11px 12px; } .queue-item-actions { flex-direction:column; align-items:flex-end; gap:0; } .queue-toolbar select { max-width:none; } }
+@media(max-width:680px) { .app { padding-left:20px; padding-right:20px; } .local-note { display:none; } .input-hint { font-size:11px; } .action-row { gap:6px; flex-wrap:wrap; } .save-options { gap:16px; } button.primary { min-width:130px; } .queue-row { gap:9px; padding:11px 12px; } .queue-item-actions { flex-direction:column; align-items:flex-end; gap:0; } .queue-toolbar select { max-width:none; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
 </style>
 </head>
@@ -133,8 +134,8 @@ textarea::placeholder { color:var(--muted); }
 </section>
 <footer class="bottom">
  <div class="destination"><svg><use href="#i-folder"/></svg><span>Save to</span><span id="destination-path">Default output folder</span><button id="change-output-btn" class="quiet">Change…</button></div>
- <div class="copy-destination"><label><input id="copy-subfolder-cb" type="checkbox" aria-describedby="copy-destination-path">Save to a named folder</label><span id="copy-destination-path">Extra copy of finished Markdown</span><button id="copy-folder-change-btn" class="quiet" aria-haspopup="dialog" hidden>Change name…</button></div>
- <div class="action-row"><label class="vault-option" id="vault-option"><input id="vault-cb" type="checkbox" VAULT_CHECKED>Copy to Obsidian vault</label><button id="open-btn"><svg><use href="#i-folder"/></svg>Open output</button><button id="retry-failed-btn" hidden>Retry failed</button><button id="convert-btn" class="primary" disabled>Convert queue<svg><use href="#i-arrow"/></svg></button><button id="abort-btn" class="danger" hidden>Stop & save</button></div>
+ <div class="save-options"><div class="copy-destination"><label><input id="copy-subfolder-cb" type="checkbox" aria-describedby="copy-destination-path">Save to a named folder</label><span id="copy-destination-path">Extra copy of finished Markdown</span><button id="copy-folder-change-btn" class="quiet" aria-haspopup="dialog" hidden>Change name…</button></div><label class="vault-option" id="vault-option"><input id="vault-cb" type="checkbox" VAULT_CHECKED>Copy to Obsidian vault</label></div>
+ <div class="action-row"><button id="open-btn"><svg><use href="#i-folder"/></svg>Open output</button><button id="retry-failed-btn" hidden>Retry failed</button><button id="convert-btn" class="primary" disabled>Convert queue<svg><use href="#i-arrow"/></svg></button><button id="abort-btn" class="danger" hidden>Stop & save</button></div>
  <span id="badge"></span>
 </footer>
 </main>
