@@ -1,4 +1,4 @@
-"""Durable, byte-preserving delivery of additional Markdown copies."""
+"""Durable, byte-preserving delivery of additional Markdown and text copies."""
 import hashlib
 import os
 from pathlib import Path
@@ -35,8 +35,8 @@ def _relative_source(source, base, destination):
         relative = source.relative_to(base)
     except ValueError:
         raise ValueError('Copy sources must be inside the output directory') from None
-    if source.suffix.lower() != '.md' or not relative.parts or relative.parts[0] == destination.name:
-        raise ValueError('Only primary Markdown outputs can be copied')
+    if source.suffix.lower() not in {'.md', '.txt'} or not relative.parts or relative.parts[0] == destination.name:
+        raise ValueError('Only primary Markdown or text outputs can be copied')
     return source, relative
 
 
@@ -59,7 +59,7 @@ def validate_copy_manifest(*, base_dir: Path, copy_dir: Path, manifest: dict) ->
             raise ValueError('Invalid copy destination record')
         target = _absolute(record['path'], 'copy target')
         if target.parent != (destination / relative).parent or target.suffix != source.suffix:
-            raise ValueError('Copy targets must preserve the source subfolders and Markdown suffix')
+            raise ValueError('Copy targets must preserve the source subfolders and file suffix')
         number = target.stem.removeprefix(source.stem + '_')
         if target.stem != source.stem and not (target.stem.startswith(source.stem + '_')
                                                and number.isascii() and number.isdigit() and int(number) >= 2):
@@ -160,7 +160,7 @@ def deliver_output_copies(sources: list[Path], *, base_dir: Path, copy_dir: Path
         _no_symlinks(base, source)
         _no_symlinks(base, (destination / relative).parent)
         if not source.is_file():
-            raise OSError('A primary Markdown output is unavailable for copying')
+            raise OSError('A primary output is unavailable for copying')
         planned.append((source, relative, _sha256(source)))
     for record in manifest.get('copy_exports', {}).values():
         _no_symlinks(base, Path(record['path']).parent)

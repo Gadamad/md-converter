@@ -11,16 +11,32 @@ from file_utils import atomic_write_text
 
 ThemeMode = Literal["system", "dark", "light"]
 RawOcrMode = Literal["different", "always", "never"]
+EpubOutputFormat = Literal["md", "txt"]
 
 THEME_CHOICES: Final[tuple[ThemeMode, ...]] = ("system", "dark", "light")
 RAW_OCR_MODE_CHOICES: Final[tuple[RawOcrMode, ...]] = ("different", "always", "never")
+EPUB_OUTPUT_FORMAT_CHOICES: Final[tuple[EpubOutputFormat, ...]] = ("md", "txt")
 DEFAULT_THEME: Final[ThemeMode] = "system"
 DEFAULT_RAW_OCR_MODE: Final[RawOcrMode] = "different"
+DEFAULT_EPUB_OUTPUT_FORMAT: Final[EpubOutputFormat] = "md"
 DEFAULT_AUTO_OPEN_OUTPUT: Final[bool] = False
 DEFAULT_INCLUDE_SUBFOLDERS: Final[bool] = True
 _APP_SUPPORT_DIR_NAME: Final[str] = "MD Converter"
 _PREFERENCES_FILENAME: Final[str] = "preferences.json"
-_PRIMARY_OUTPUT_FOLDERS: Final[frozenset[str]] = frozenset({'quotes', 'pdf', 'docx', 'spreadsheets', 'html', 'txt', 'rtf'})
+_PRIMARY_OUTPUT_FOLDERS: Final[frozenset[str]] = frozenset({'quotes', 'pdf', 'docx', 'spreadsheets', 'html', 'txt', 'rtf', 'epub'})
+
+
+def validate_epub_output_format(value: object) -> EpubOutputFormat:
+    if not isinstance(value, str) or value not in EPUB_OUTPUT_FORMAT_CHOICES:
+        raise ValueError('EPUB output must be Markdown (md) or plain text (txt).')
+    return value
+
+
+def _parse_epub_output_format(value: object) -> EpubOutputFormat:
+    try:
+        return validate_epub_output_format(value)
+    except ValueError:
+        return DEFAULT_EPUB_OUTPUT_FORMAT
 
 
 def validate_copy_subfolder(value: object) -> str | None:
@@ -99,12 +115,14 @@ class Preferences:
     include_subfolders: bool = DEFAULT_INCLUDE_SUBFOLDERS
     show_source_details: bool = False
     copy_subfolder: str | None = None
+    epub_output_format: EpubOutputFormat = DEFAULT_EPUB_OUTPUT_FORMAT
 
     def __post_init__(self) -> None:
         if self.theme not in THEME_CHOICES:
             raise ValueError(f"Invalid theme: {self.theme}")
         if self.raw_ocr_mode not in RAW_OCR_MODE_CHOICES:
             raise ValueError(f"Invalid raw OCR mode: {self.raw_ocr_mode}")
+        validate_epub_output_format(self.epub_output_format)
         if not isinstance(self.include_subfolders, bool):
             raise ValueError('Include subfolders must be a boolean.')
         if not isinstance(self.show_source_details, bool):
@@ -115,6 +133,7 @@ class Preferences:
         return {
             "theme": self.theme,
             "raw_ocr_mode": self.raw_ocr_mode,
+            "epub_output_format": self.epub_output_format,
             "output_dir": str(self.output_dir) if self.output_dir is not None else None,
             "auto_open_output": self.auto_open_output,
             "include_subfolders": self.include_subfolders,
@@ -127,6 +146,7 @@ class Preferences:
         return cls(
             theme=_parse_theme(data.get("theme", DEFAULT_THEME)),
             raw_ocr_mode=_parse_raw_ocr_mode(data.get("raw_ocr_mode", DEFAULT_RAW_OCR_MODE)),
+            epub_output_format=_parse_epub_output_format(data.get("epub_output_format", DEFAULT_EPUB_OUTPUT_FORMAT)),
             output_dir=_parse_output_dir(data.get("output_dir")),
             auto_open_output=_parse_auto_open_output(data.get("auto_open_output", DEFAULT_AUTO_OPEN_OUTPUT)),
             include_subfolders=(data['include_subfolders'] if isinstance(data.get('include_subfolders'), bool)

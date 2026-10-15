@@ -66,7 +66,7 @@ VAULT_DIR = (
 )
 
 FILETYPES = (
-    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf;*.png;*.jpg;*.jpeg;*.webp;*.webloc)",
+    "All supported (*.pdf;*.docx;*.xlsx;*.html;*.htm;*.txt;*.rtf;*.epub;*.png;*.jpg;*.jpeg;*.webp;*.webloc)",
     "Website shortcuts (*.webloc)",
     "Quote images (*.png;*.jpg;*.jpeg;*.webp)",
     "PDF files (*.pdf)",
@@ -75,6 +75,7 @@ FILETYPES = (
     "HTML files (*.html;*.htm)",
     "Text files (*.txt)",
     "RTF files (*.rtf)",
+    "EPUB books (*.epub)",
 )
 
 QUOTE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -425,6 +426,9 @@ class Api(SavedQueueApi):
                 if 'copy_subfolder' in payload:
                     from preferences import validate_copy_subfolder
                     data['copy_subfolder'] = validate_copy_subfolder(payload['copy_subfolder'])
+                if 'epub_output_format' in payload:
+                    from preferences import validate_epub_output_format
+                    data['epub_output_format'] = validate_epub_output_format(payload['epub_output_format'])
             preferences = Preferences.from_dict(data)
             self._copy_dir_for_preferences(preferences)
             self._save_preferences(preferences)
@@ -622,6 +626,8 @@ class Api(SavedQueueApi):
         use_vault = self._vault_checked()
         vault_dir = VAULT_DIR if use_vault else None
         output_dir = self._effective_output_dir()
+        with self._preferences_lock:
+            epub_output_format = getattr(self._preferences, 'epub_output_format', 'md')
         ok_count = 0
         total_words = 0
         job_failed = False
@@ -697,7 +703,10 @@ class Api(SavedQueueApi):
             self._set_summary(f"Processing {processed + 1} / {total}: {name}")
 
             try:
-                options = {"should_cancel": self._cancel_event.is_set} if Path(path).suffix.lower() == ".pdf" else {}
+                suffix = Path(path).suffix.lower()
+                options = {"should_cancel": self._cancel_event.is_set} if suffix in {".pdf", ".epub"} else {}
+                if suffix == '.epub':
+                    options['epub_output_format'] = epub_output_format
                 r = route(path, output_dir, vault_dir, **options)
                 total_words += r.word_count
                 if r.success:

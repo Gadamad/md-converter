@@ -34,6 +34,9 @@ class PreferencesDefaultsTests(unittest.TestCase):
     def test_named_copy_is_disabled_by_default(self):
         self.assertIsNone(getattr(Preferences(), 'copy_subfolder', 'missing'))
 
+    def test_epub_defaults_to_markdown(self):
+        self.assertEqual(getattr(Preferences(), 'epub_output_format', None), 'md')
+
 
 class PreferencesValidationTests(unittest.TestCase):
     def test_invalid_theme_raises_value_error(self):
@@ -43,6 +46,11 @@ class PreferencesValidationTests(unittest.TestCase):
     def test_invalid_raw_ocr_mode_raises_value_error(self):
         with self.assertRaises(ValueError):
             Preferences(raw_ocr_mode="sometimes")
+
+    def test_epub_format_rejects_values_other_than_md_or_txt(self):
+        for invalid in ('html', 'MD', '', None, False, [], {}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                Preferences(epub_output_format=invalid)
 
     def test_include_subfolders_requires_a_boolean(self):
         for invalid in (0, 1, None, 'false'):
@@ -60,7 +68,7 @@ class PreferencesValidationTests(unittest.TestCase):
                 Preferences(copy_subfolder=invalid)
 
     def test_copy_subfolder_rejects_primary_export_folder_names_case_insensitively(self):
-        for name in ('quotes', 'PDF', 'docx', 'Spreadsheets', 'html', 'TXT', 'rtf'):
+        for name in ('quotes', 'PDF', 'docx', 'Spreadsheets', 'html', 'TXT', 'rtf', 'EPUB'):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'regular exports.*different'):
                 Preferences(copy_subfolder=name)
 
@@ -71,13 +79,14 @@ class PreferencesSerializationTests(unittest.TestCase):
         data = prefs.to_dict()
         self.assertEqual(
             set(data.keys()),
-            {"theme", "raw_ocr_mode", "output_dir", "auto_open_output", "include_subfolders", "show_source_details", "copy_subfolder"},
+            {"theme", "raw_ocr_mode", "epub_output_format", "output_dir", "auto_open_output", "include_subfolders", "show_source_details", "copy_subfolder"},
         )
 
     def test_round_trip_preserves_values(self):
         original = Preferences(
             theme="light",
             raw_ocr_mode="never",
+            epub_output_format='txt',
             output_dir=Path("/tmp/output"),
             auto_open_output=True,
             include_subfolders=False,
@@ -93,6 +102,13 @@ class PreferencesSerializationTests(unittest.TestCase):
     def test_from_dict_defaults_missing_keys(self):
         prefs = Preferences.from_dict({})
         self.assertEqual(prefs, Preferences())
+
+    def test_invalid_stored_epub_format_defaults_to_md_without_losing_preferences(self):
+        for invalid in ('html', 'MD', '', None, False, [], {}):
+            with self.subTest(invalid=invalid):
+                prefs = Preferences.from_dict({'epub_output_format': invalid, 'theme': 'dark'})
+                self.assertEqual(getattr(prefs, 'epub_output_format', None), 'md')
+                self.assertEqual(prefs.theme, 'dark')
 
     def test_invalid_include_subfolders_defaults_true_without_losing_other_preferences(self):
         for invalid in (0, 1, None, 'false', [], {}):
@@ -116,6 +132,7 @@ class PreferencesStoreTests(unittest.TestCase):
             original = Preferences(
                 theme="dark",
                 raw_ocr_mode="always",
+                epub_output_format='txt',
                 output_dir=Path(temp_dir) / "exports",
                 auto_open_output=True,
                 include_subfolders=False,

@@ -113,7 +113,10 @@ class QueueRunner:
                     raise FileNotFoundError('Source file is missing. Use Locate file to reconnect it.')
                 work.mkdir(parents=True, exist_ok=True)
                 from converters import route, convert_raw_text
-                kwargs = {'should_cancel': self.should_cancel} if item['kind'] == 'file' and Path(item['source']).suffix.lower() == '.pdf' else {}
+                extension = Path(item['source']).suffix.lower() if item['kind'] == 'file' else ''
+                kwargs = {'should_cancel': self.should_cancel} if extension in ('.pdf', '.epub') else {}
+                if extension == '.epub':
+                    kwargs['epub_output_format'] = item['options'].get('epub_output_format', 'md')
                 if item['kind'] == 'text':
                     # Injected paste converters receive the base output folder,
                     # matching the existing test/extension contract. The normal
@@ -163,8 +166,13 @@ class QueueRunner:
         # Stable item identity closes the crash window between publishing and
         # committing done. A workbook owns one folder, and its receipt lists
         # every worksheet so an interrupted export repairs the same files.
-        name = (f"{receipt['directory_name']}_{item['id'][:12]}" if collection else
-                f"{Path(receipt['filename']).stem}_{item['id'][:12]}.md")
+        if collection:
+            name = f"{receipt['directory_name']}_{item['id'][:12]}"
+        else:
+            suffix = Path(receipt['filename']).suffix.lower()
+            if suffix not in ('.md', '.txt'):
+                raise ValueError('Saved conversion has an unsupported output extension.')
+            name = f"{Path(receipt['filename']).stem}_{item['id'][:12]}{suffix}"
         output = Path(item['output_path']) if item['output_path'] else Path(item['options']['output_dir']) / receipt['format'] / name
         self.store.update_item(item['id'], output_path=str(output))
         vault = item['options'].get('vault_dir')
@@ -176,7 +184,8 @@ class QueueRunner:
                 atomic_write_chunks(target, iter(lambda: stream.read(65536), ''))
             if vault:
                 from converters import vault_frontmatter
-                vault_target = Path(vault) / receipt['format'] / name
+                vault_name = name if collection else str(Path(name).with_suffix('.md'))
+                vault_target = Path(vault) / receipt['format'] / vault_name
                 if collection:
                     vault_target /= entry['filename']
                 vault_target.parent.mkdir(parents=True, exist_ok=True)

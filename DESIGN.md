@@ -9,6 +9,6 @@ Refined native Mac utility. Use the system font, generous but practical spacing,
 - Recovery: interrupted batches offer Resume; failed batches offer Retry failed. Show saved and failed counts.
 - Footer: destination above one aligned row of named-folder and Obsidian copy options. Place output and conversion buttons together below, aligned to the right. Keep checkbox sizes, baselines and label typography consistent. One primary Convert queue action handles waiting items with a contextual Retry failed action. During processing, replace conversion with Stop & save.
 - Intake: files, browser links, website shortcuts and pasted text collect without conversion. Text/URL has an explicit Add to queue action; links are fetched on conversion. Queues survive application restarts automatically.
-- Preferences: appearance, output destination, quote details and auto-open behavior; changes persist only on Save.
+- Preferences: appearance, output destination, EPUB-only Markdown/TXT output, quote details and auto-open behavior; changes persist only on Save. Use the established labeled native selects and helper text, leaving the dashboard and aligned footer intact.
 
 Use accessible contrast, visible keyboard focus, semantic buttons, live progress, modal focus management, reduced-motion support and layouts that remain usable at the minimum window size. Use textContent for filenames and log messages. Avoid animation without a functional purpose.

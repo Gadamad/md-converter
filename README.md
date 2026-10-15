@@ -1,13 +1,13 @@
 # MD Converter
 
-Turn PDFs, DOCX files, XLSX workbooks, web pages, pasted text, TXT, and RTF into clean Markdown you can actually use.
+Turn PDFs, DOCX files, XLSX workbooks, EPUB books, web pages, pasted text, TXT, and RTF into clean Markdown you can actually use. EPUB books can also become plain TXT files.
 
 `MD Converter` gives you two ways to work:
 
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.3.8 aligns the named-folder and Obsidian copy options together above the output and conversion buttons. Tick **Save to a named folder**, enter a folder name and keep an extra copy of finished Markdown inside the current Save to location. Regular outputs remain saved. Copy retries reuse saved conversions and preserve existing destination files. Suspicious OCR checks, Hungarian accents, compact queues, source details, Open actions and image recovery remain available. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.4.0 adds local EPUB conversion. Choose **Preferences → EPUB output → Markdown (.md)** or **Plain text (.txt)**, then add books to the queue as usual. Each book becomes one file in reading order, with Hungarian accents preserved. Named-folder copies and export retries support both extensions; Obsidian copies remain Markdown notes. Existing document formats, OCR recovery and the aligned footer keep their behavior. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -26,6 +26,7 @@ File conversion and OCR run locally on your Mac. Converting a website URL fetche
 | PDF | Extracts selectable text, or falls back to OCR for scanned PDFs |
 | DOCX | Preserves headings, bold, italics, lists, quotes, and tables |
 | XLSX | Converts each workbook sheet into a separate Markdown table file |
+| EPUB | Reads book chapters in their declared order; saves one Markdown or plain TXT file |
 | HTML / URL | Reads local HTML or fetches a URL and converts the main content to Markdown |
 | TXT | Wraps plain text in a clean Markdown document |
 | RTF | Converts RTF content into plain Markdown text |
@@ -89,6 +90,7 @@ converted/
   pdf/
   docx/
   spreadsheets/
+  epub/
   html/
   txt/
   rtf/
@@ -148,6 +150,7 @@ Current Preferences include:
   - `Always show`
   - `Never show`
 - **Output directory** — use the default output location or choose a custom one
+- **EPUB output** — `Markdown (.md)` by default, or `Plain text (.txt)` for EPUB books; other formats keep Markdown
 - **Auto-open output after export** — open the result folder automatically after successful exports
 
 Preferences are stored persistently for the installed app at:
@@ -182,7 +185,7 @@ Notes:
 
 ## What The Output Looks Like
 
-Each converted file gets:
+Markdown exports get:
 
 - A Markdown title.
 - A metadata header with source information.
@@ -190,6 +193,10 @@ Each converted file gets:
 - Optional extra metadata such as page count or OCR timing, depending on the source.
 
 If vault delivery is enabled, the copied version also gets YAML frontmatter for easier use in Obsidian.
+
+EPUB conversion saves one file per book under `epub/`. It follows the book's reading order, preserves chapter headings, paragraphs, lists, basic tables and accents, and includes auxiliary notes. Navigation blocks, scripts, images and page styling are omitted. TXT exports contain the title, available authors and readable body text without Markdown metadata or formatting markers. Optional named-folder copies keep the chosen extension and exact bytes. Obsidian delivery always creates a `.md` note, including for a primary TXT export. Failed delivery retries reuse the saved conversion and its original output choice.
+
+The reader supports EPUB 2/3 books with XHTML or HTML chapters, including usable XHTML fallbacks. It reads the archive locally without extracting files or fetching remote resources. Encrypted selected chapters and image-only books report an actionable failure; this feature adds no DRM removal or EPUB OCR. Limits are 10,000 archive entries, 1 MiB per control XML document, 8 MiB per chapter and 64 MiB of cumulative decompressed document reads. Invalid reading order and unsafe archive paths are reported without changing the original book.
 
 XLSX workbook conversion creates one Markdown file per non-empty sheet. Formulas are read as the cached workbook values available in the file; the converter does not recalculate formulas.
 

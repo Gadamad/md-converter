@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Universal Markdown Converters
-Five format converters with shared utilities for consistent output.
+Local format converters with shared utilities for consistent output.
 """
 
 import hashlib
+import json
 import math
 import random
 import re
@@ -220,10 +221,10 @@ def vault_frontmatter(title: str, source_type: str, source_file: str) -> str:
     """Generate Obsidian-compatible YAML frontmatter."""
     return (
         f"---\n"
-        f'title: "{title}"\n'
+        f"title: {json.dumps(title, ensure_ascii=False)}\n"
         f"tags: [converted, {source_type}]\n"
         f"created: {date.today().isoformat()}\n"
-        f'source: "{source_file}"\n'
+        f"source: {json.dumps(source_file, ensure_ascii=False)}\n"
         f"---\n\n"
     )
 
@@ -263,18 +264,20 @@ def write_output(
 # Format routing
 # ---------------------------------------------------------------------------
 
-SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf', '.xlsx', '.png', '.jpg', '.jpeg', '.webp'}
+SUPPORTED = {'.pdf', '.docx', '.html', '.htm', '.txt', '.rtf', '.xlsx', '.epub', '.png', '.jpg', '.jpeg', '.webp'}
 
 SUBFOLDER = {
     '.pdf': 'pdf', '.docx': 'docx',
     '.html': 'html', '.htm': 'html',
     '.txt': 'txt', '.rtf': 'rtf',
     '.xlsx': 'spreadsheets',
+    '.epub': 'epub',
     '.png': 'quotes', '.jpg': 'quotes', '.jpeg': 'quotes', '.webp': 'quotes',
 }
 
 
-def route(path: str, base_output: Path, vault_dir: Path | None = None, *, should_cancel=None) -> ConvertResult:
+def route(path: str, base_output: Path, vault_dir: Path | None = None, *, should_cancel=None,
+          epub_output_format: str = 'md') -> ConvertResult:
     """Detect format and call the right converter."""
     # URL detection
     if path.startswith("http://") or path.startswith("https://"):
@@ -289,6 +292,9 @@ def route(path: str, base_output: Path, vault_dir: Path | None = None, *, should
     out = base_output / SUBFOLDER[ext]
     if ext == ".pdf":
         return convert_pdf(path, out, vault_dir, should_cancel=should_cancel)
+    if ext == '.epub':
+        return convert_epub(path, out, vault_dir, output_format=epub_output_format,
+                            should_cancel=should_cancel)
     converters = {
         '.pdf': convert_pdf,
         '.docx': convert_docx,
@@ -616,6 +622,52 @@ def convert_html(path_or_url: str, output_dir: Path, vault_dir: Path | None = No
 
     extras = {"URL": f"`{path_or_url}`"} if is_url else {}
     return write_output(body, title, source, word_count, output_dir, "html", vault_dir, extras)
+
+
+# ---------------------------------------------------------------------------
+# EPUB book converter
+# ---------------------------------------------------------------------------
+
+def convert_epub(path: str, output_dir: Path, vault_dir: Path | None = None, *,
+                 output_format: str = 'md', should_cancel=None) -> ConvertResult:
+    """Read a local book in spine order and save Markdown or genuine plain text."""
+    if output_format not in ('md', 'txt'):
+        raise ValueError('EPUB output must be Markdown (md) or plain text (txt).')
+    from epub_reader import EpubError, EpubCancelled, read_epub, render_markdown, render_text
+    try:
+        book = read_epub(path, should_cancel=should_cancel)
+        text = render_text(book, should_cancel=should_cancel).strip()
+        if not text:
+            return ConvertResult(False, '', 0, 'No extractable text; image-only EPUB requires OCR.')
+        word_count = len(text.split())
+        source = Path(path)
+        if output_format == 'md':
+            body = render_markdown(book, should_cancel=should_cancel).strip()
+            extras = {'Author': ', '.join(book.authors)} if book.authors else {}
+            content = build_header(book.title, source.name, word_count, **extras) + body + '\n'
+        else:
+            metadata = [book.title]
+            if book.authors:
+                metadata.append('Author: ' + ', '.join(book.authors))
+            content = '\n'.join(metadata) + '\n\n' + text + '\n'
+        if should_cancel and should_cancel():
+            raise EpubCancelled()
+    except EpubCancelled:
+        return ConvertResult(False, '', 0, 'Stopped EPUB conversion; original book is unchanged.')
+    except EpubError as exc:
+        return ConvertResult(False, '', 0, str(exc))
+
+    # Leave room for the queue's stable identity suffix and filesystem limits.
+    stem = output_stem(book.title, source.name, 'epub').encode('utf-8')[:180].decode('utf-8', 'ignore')
+    stem = stem.rstrip(' ._-') or 'book'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = reserve_output_path(output_dir, stem, '.' + output_format)
+    atomic_write_text(target, content)
+    if vault_dir:
+        # Obsidian notes remain Markdown even when the regular export is TXT.
+        vault_target = reserve_output_path(vault_dir / 'epub', stem, '.md')
+        atomic_write_text(vault_target, vault_frontmatter(book.title, 'epub', source.name) + content)
+    return ConvertResult(True, str(target), word_count, f'OK -> {target.name}')
 
 
 # ---------------------------------------------------------------------------

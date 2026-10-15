@@ -379,7 +379,8 @@ class SavedQueueApi:
         with self._preferences_lock:
             options = {'output_dir': str(self._effective_output_dir().resolve()),
                        'vault_dir': str(self._vault_dir.resolve()) if self._vault_checked() and self._vault_dir else None,
-                       'raw_ocr_mode': self._preferences.raw_ocr_mode}
+                       'raw_ocr_mode': self._preferences.raw_ocr_mode,
+                       'epub_output_format': getattr(self._preferences, 'epub_output_format', 'md')}
             # Destination failures belong to delivery, after the normal output
             # is safe. A retry also uses each item's saved destinations.
             copy_dir = self._effective_copy_dir(validate_destination=False)
