@@ -1,5 +1,7 @@
 # MD Converter 0.4.0
 
+The packaged macOS app was verified through its native file picker: a Hungarian EPUB produced Markdown, and a complete Project Gutenberg EPUB produced TXT. Their named-folder copies match exactly, the TXT choice survives restart, and the original books, existing completed conversion, quote exports, saved queues and preferences were verified unchanged after testing.
+
 Add EPUB books through files, folders or drag and drop, then convert the saved queue as usual. **Preferences → EPUB output** chooses **Markdown (.md)** or **Plain text (.txt)**, with Markdown as the default. Each book becomes one file under the `epub` output folder. Chapters follow the package's declared reading order; headings, paragraphs, lists, basic tables, authors and Hungarian accents are retained. Navigation blocks, scripts and embedded images are omitted. Auxiliary and hidden footnotes remain available as text.
 
 TXT exports contain readable text without Markdown headers or formatting markers. Named-folder copies preserve their extension and bytes. Optional Obsidian delivery remains a Markdown note. Queue items freeze the output choice when conversion starts; failed delivery reuses the private converted file even if the original book is unavailable or Preferences changes later. Existing Markdown receipts and all other source formats keep their behavior. Quoted or multiline book metadata is escaped correctly in vault frontmatter.
