@@ -213,7 +213,8 @@ class QuoteCheckpoint:
         if not isinstance(directory, str):
             raise ValueError('Invalid additional-copy destination')
         copy_dir = Path(directory)
-        validate_copy_manifest(base_dir=self.path.parent.parent, copy_dir=copy_dir, manifest=self.report)
+        validate_copy_manifest(base_dir=self.path.parent.parent, copy_dir=copy_dir, manifest=self.report,
+                               copy_mode=self.report.get('copy_mode', 'subfolder'))
         # The delivery manifest retains the same absolute spelling passed to
         # save, including OS parent aliases such as /var versus /private/var.
         if any(source != str(self.path) for source in exports):
@@ -272,7 +273,8 @@ class QuoteCheckpoint:
             self._persist_report()
             try:
                 deliver_output_copies([self.path], base_dir=self.path.parent.parent,
-                                      copy_dir=copy_dir, manifest=self.report, persist=self._persist_report)
+                                      copy_dir=copy_dir, manifest=self.report, persist=self._persist_report,
+                                      copy_mode=self.report.get('copy_mode', 'subfolder'))
             except (OSError, ValueError, RuntimeError) as exc:
                 raise OSError(f'Image text is saved; additional copy failed: {exc}') from exc
         # Recovery writes a temporary "running" report before its final state.

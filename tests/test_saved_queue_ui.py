@@ -125,14 +125,14 @@ const fs = require('node:fs');
   await page.locator('#preferences-btn').click();
   assert.equal(await epubChoice.inputValue(),'txt','A failed save must not replace the committed format');
   await page.locator('#preferences-cancel-btn').click();
-  assert.equal(await page.getByLabel('Save to a named folder',{exact:true}).count(),1);
+  assert.equal(await page.getByLabel('Save an extra copy',{exact:true}).count(),1);
   await page.evaluate(()=>{
    window.copyTestPrefs={theme:'system',raw_ocr_mode:'different',output_dir:'/tmp/exports',auto_open_output:false,include_subfolders:true,copy_subfolder:null};
    window.copyTestState={queue:window.testQueue,output_dir:'/tmp/exports',copy_dir:null,copy_error:'',vault_configured:false,recovery_jobs:[]};
    window.pywebview.api={set_copy_subfolder:async(name)=>{window.testCalls.push(['set_copy_subfolder',name]);window.copyTestPrefs={...window.copyTestPrefs,copy_subfolder:name};window.copyTestState.copy_dir=name?'/tmp/exports/'+name:null;return window.copyTestPrefs;},get_application_state:async()=>window.copyTestState};
    applyPreferences(window.copyTestPrefs);renderApplicationState(window.copyTestState);
   });
-  const copyChoice=page.getByLabel('Save to a named folder',{exact:true});
+  const copyChoice=page.getByLabel('Save an extra copy',{exact:true});
   assert.equal(await copyChoice.isChecked(),false);
   await page.evaluate(()=>renderSavedQueue({...window.testQueue,queues:[{id:'inbox',name:'Quotes'}]}));
   await copyChoice.click();
@@ -206,7 +206,105 @@ const fs = require('node:fs');
   await page.evaluate(()=>{applyPreferences({...window.copyTestPrefs,copy_subfolder:'Restored copy'});renderApplicationState({...window.copyTestState,copy_dir:'/tmp/exports/Restored copy'});setBusy(true);});
   assert.equal(await copyChoice.isDisabled(),true);
   assert.equal(await page.locator('#copy-folder-change-btn').isDisabled(),true);
-  await page.evaluate(()=>{setBusy(false);applyPreferences({...window.copyTestPrefs,copy_subfolder:null});window.testCalls=[];});
+  await page.evaluate(()=>{
+   setBusy(false);
+   window.copyTestPrefs={...window.copyTestPrefs,copy_subfolder:'Current copies',copy_existing_dir:null};
+   window.copyTestState={...window.copyTestState,copy_dir:'/tmp/exports/Current copies'};
+   window.pickedCopyPath='/Users/test/Existing <img src=x onerror=alert(1)>/Árvíztűrő';
+   window.testCalls=[];
+   window.pywebview.api={
+    browse_copy_directory:async()=>{window.testCalls.push(['browse_copy_directory']);return window.pickedCopyPath;},
+    set_copy_existing_directory:async(path)=>{window.testCalls.push(['set_copy_existing_directory',path]);window.copyTestPrefs={...window.copyTestPrefs,copy_subfolder:null,copy_existing_dir:path};window.copyTestState.copy_dir=path;return window.copyTestPrefs;},
+    set_copy_subfolder:async(name)=>{window.testCalls.push(['set_copy_subfolder',name]);window.copyTestPrefs={...window.copyTestPrefs,copy_subfolder:name,copy_existing_dir:null};window.copyTestState.copy_dir=name?'/tmp/exports/'+name:null;return window.copyTestPrefs;},
+    get_application_state:async()=>window.copyTestState
+   };
+   applyPreferences(window.copyTestPrefs);renderApplicationState(window.copyTestState);
+  });
+  const copyNamed=page.getByRole('radio',{name:'New folder inside Save to',exact:true});
+  const copyExisting=page.getByRole('radio',{name:'Existing folder',exact:true});
+  const copyBrowse=page.getByRole('button',{name:'Choose existing folder…',exact:true});
+  await page.getByRole('button',{name:'Change folder…',exact:true}).click();
+  assert.equal(await copyNamed.isChecked(),true);
+  await copyNamed.focus();await copyNamed.press('ArrowDown');
+  assert.equal(await copyExisting.isChecked(),true,'Native radio keyboard navigation switches destination modes');
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await copyNamed.isChecked(),true,'Mode changes keep focus in the native radio group');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator('#copy-folder-save-btn').isDisabled(),true,'An existing destination must be chosen before saving');
+  await copyBrowse.click();
+  assert.equal(await page.locator('#copy-existing-path').textContent(),await page.evaluate(()=>window.pickedCopyPath));
+  assert.equal(await page.locator('#copy-folder-modal img').count(),0,'Selected paths must render as text');
+  assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Current copies','Picking must not alter the saved footer destination');
+  assert.deepEqual(await page.evaluate(()=>window.testCalls),[['browse_copy_directory']],'Native picking must not commit preferences');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Current copies');
+  assert.equal(await copyChoice.isChecked(),true);
+  await page.locator('#copy-folder-change-btn').click();
+  assert.equal(await copyNamed.isChecked(),true,'Reopening uses the committed mode');
+  await copyExisting.check();
+  assert.equal(await page.locator('#copy-folder-save-btn').isDisabled(),true,'Escape discards the picked draft');
+  await copyBrowse.click();
+  await page.locator('#copy-folder-cancel-btn').click();
+  assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Current copies','Cancel also discards the picked draft');
+  await page.locator('#copy-folder-change-btn').click();await copyExisting.check();await copyBrowse.click();
+  await page.evaluate(()=>{window.pywebview.api.browse_copy_directory=async()=>null;});
+  await copyBrowse.click();
+  assert.equal(await page.locator('#copy-existing-path').textContent(),await page.evaluate(()=>window.pickedCopyPath),'Canceling the native picker retains the current draft path');
+  await page.locator('#copy-folder-save-btn').click();
+  await page.waitForFunction(()=>!document.getElementById('copy-folder-modal').open);
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['set_copy_existing_directory',await page.evaluate(()=>window.pickedCopyPath)]);
+  assert.equal(await copyChoice.isChecked(),true);
+  assert.equal(await page.locator('#copy-destination-path').textContent(),await page.evaluate(()=>window.pickedCopyPath));
+  assert.equal(await page.locator('#copy-destination-path').getAttribute('title'),await page.evaluate(()=>window.pickedCopyPath));
+  assert.equal(await page.locator('#destination-path').textContent(),'/tmp/exports');
+  await checkFooterLayout('640×640 enabled existing-folder copy');
+  await page.evaluate(()=>applyPreferences(JSON.parse(JSON.stringify(window.copyTestPrefs))));
+  await page.locator('#copy-folder-change-btn').click();
+  assert.equal(await copyExisting.isChecked(),true,'Existing-folder mode survives loading saved preferences');
+  await copyBrowse.click();
+  assert.equal(await page.locator('#copy-folder-save-btn').isEnabled(),true,'Native picker cancellation retains the committed existing folder');
+  await copyNamed.check();await page.locator('#copy-folder-input').fill('Returned to named');await page.locator('#copy-folder-input').press('Enter');
+  await page.waitForFunction(()=>!document.getElementById('copy-folder-modal').open);
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['set_copy_subfolder','Returned to named']);
+  assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Returned to named');
+  await page.locator('#copy-folder-change-btn').click();await copyExisting.check();
+  await page.evaluate(()=>{window.pywebview.api.browse_copy_directory=async()=>new Promise(resolve=>window.finishCopyBrowse=()=>resolve(window.pickedCopyPath));});
+  await copyBrowse.click();
+  for(const id of ['copy-folder-cancel-btn','copy-folder-save-btn','copy-folder-browse-btn','copy-mode-named','copy-mode-existing','copy-folder-input','convert-btn']) assert.equal(await page.locator('#'+id).isDisabled(),true,id+' must wait for the native picker');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#copy-folder-modal').isVisible(),true,'A pending native picker cannot dismiss its owning dialog');
+  await page.evaluate(()=>window.finishCopyBrowse());
+  await page.waitForFunction(()=>!document.getElementById('copy-folder-browse-btn').disabled);
+  await page.evaluate(()=>{window.pywebview.api.browse_copy_directory=async()=>{throw Error('Picker unavailable');};});
+  await copyBrowse.click();
+  assert.match(await page.locator('#copy-folder-error').textContent(),/Picker unavailable/);
+  assert.equal(await copyBrowse.isEnabled(),true,'A failed picker releases the dialog');
+  assert.equal(await page.locator('#copy-existing-path').textContent(),await page.evaluate(()=>window.pickedCopyPath));
+  await page.evaluate(()=>{window.pywebview.api.set_copy_existing_directory=async()=>{throw Error('Folder is unavailable');};});
+  await page.locator('#copy-folder-save-btn').click();
+  assert.match(await page.locator('#copy-folder-error').textContent(),/Folder is unavailable/);
+  assert.equal(await page.locator('#copy-folder-modal').isVisible(),true);
+  assert.equal(await copyExisting.isChecked(),true,'A failed save retains the selected draft mode');
+  assert.equal(await page.locator('#copy-existing-path').textContent(),await page.evaluate(()=>window.pickedCopyPath));
+  assert.equal(await page.locator('#copy-destination-path').textContent(),'/tmp/exports/Returned to named','A failed save preserves the committed destination');
+  await page.locator('#copy-folder-cancel-btn').click();
+  await page.locator('#copy-folder-change-btn').click();await copyExisting.check();
+  await page.evaluate(()=>{window.pywebview.api.browse_copy_directory=async()=>window.pickedCopyPath;window.pywebview.api.set_copy_existing_directory=async path=>new Promise(resolve=>window.finishExistingCopySave=()=>{window.copyTestPrefs={...window.copyTestPrefs,copy_subfolder:null,copy_existing_dir:path};window.copyTestState.copy_dir=path;resolve(window.copyTestPrefs);});});
+  await copyBrowse.click();await page.locator('#copy-folder-save-btn').click();
+  assert.equal(await copyNamed.isDisabled(),true);assert.equal(await copyBrowse.isDisabled(),true);assert.equal(await page.locator('#copy-folder-cancel-btn').isDisabled(),true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#copy-folder-modal').isVisible(),true,'A pending existing-folder save must not masquerade as cancellation');
+  await page.evaluate(()=>window.finishExistingCopySave());
+  await page.waitForFunction(()=>!document.getElementById('copy-folder-modal').open);
+  await page.evaluate(()=>setBusy(true));
+  assert.equal(await copyChoice.isDisabled(),true);assert.equal(await page.locator('#copy-folder-change-btn').isDisabled(),true);
+  await page.evaluate(()=>setBusy(false));
+  await copyChoice.click();
+  await page.waitForFunction(()=>!document.getElementById('copy-subfolder-cb').disabled);
+  assert.equal(await copyChoice.isChecked(),false,'Disabling clears either copy mode');
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['set_copy_subfolder',null]);
+  assert.equal(await page.locator('#copy-folder-change-btn').isHidden(),true);
+  await page.evaluate(()=>{applyPreferences({...window.copyTestPrefs,copy_subfolder:null,copy_existing_dir:null});window.testCalls=[];});
   assert.equal(await page.getByLabel('Include subfolders',{exact:true}).count(),1,'Folder depth must be an explicit choice beside Add folder');
   const folderChoice = page.getByLabel('Include subfolders',{exact:true});
   assert.equal(await folderChoice.isChecked(),true,'Existing recursive behavior stays the default');
@@ -494,22 +592,22 @@ const fs = require('node:fs');
    await page.setViewportSize(viewport);
    for (const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark']]) {
     await page.emulateMedia({colorScheme});
-    for (const state of ['ready','retry','stop']) {
-     await page.evaluate(({theme,state})=>{
+    for (const copyMode of ['named','existing']) for (const state of ['ready','retry','stop']) {
+     await page.evaluate(({theme,state,copyMode})=>{
       setBusy(false);hideAbortButton();
-      applyPreferences({...savedPreferences,theme,copy_subfolder:'Árvíztűrő jegyzetek'});
+      applyPreferences({...savedPreferences,theme,copy_subfolder:copyMode==='named'?'Árvíztűrő jegyzetek':null,copy_existing_dir:copyMode==='existing'?'/Users/test/Existing copy folder/Árvíztűrő jegyzetek':null});
       const outputDir='/Users/test/SynologyDrive/Research archive/Converted Markdown/Very long destination folder';
-      renderApplicationState({...applicationState,output_dir:outputDir,copy_dir:outputDir+'/Árvíztűrő jegyzetek',copy_error:'',vault_configured:true,queue:{active_id:'footer',queues:[{id:'footer',name:'Footer layout'}],items:[{id:'waiting',kind:'file',title:'Document.pdf',source:'/tmp/Document.pdf',status:'waiting'},...(state==='retry'?[{id:'failed',kind:'file',title:'Missing.pdf',source:'/tmp/Missing.pdf',status:'failed',error:'File moved. Locate it to continue.'}]:[])],total:state==='retry'?2:1,waiting:1,failed:state==='retry'?1:0,done:0,review:0,busy:false,saved:true}});
+      renderApplicationState({...applicationState,output_dir:outputDir,copy_dir:copyMode==='existing'?'/Users/test/Existing copy folder/Árvíztűrő jegyzetek':outputDir+'/Árvíztűrő jegyzetek',copy_error:'',vault_configured:true,queue:{active_id:'footer',queues:[{id:'footer',name:'Footer layout'}],items:[{id:'waiting',kind:'file',title:'Document.pdf',source:'/tmp/Document.pdf',status:'waiting'},...(state==='retry'?[{id:'failed',kind:'file',title:'Missing.pdf',source:'/tmp/Missing.pdf',status:'failed',error:'File moved. Locate it to continue.'}]:[])],total:state==='retry'?2:1,waiting:1,failed:state==='retry'?1:0,done:0,review:0,busy:false,saved:true}});
       if(state==='stop') {setBusy(true);showAbortButton();}
       document.getElementById('toast').hidden=true;
-     },{theme,state});
+     },{theme,state,copyMode});
      assert.equal(await page.locator('#retry-failed-btn').isVisible(),state==='retry');
      assert.equal(await page.locator('#abort-btn').isVisible(),state==='stop');
      assert.equal(await page.locator('#convert-btn').isVisible(),state!=='stop');
-     await checkFooterLayout(`${viewport.width}×${viewport.height} ${theme}/${colorScheme} ${state}`);
+     await checkFooterLayout(`${viewport.width}×${viewport.height} ${theme}/${colorScheme} ${copyMode} ${state}`);
      if(process.env.FOOTER_SCREENSHOT_DIR && theme!=='system') {
       fs.mkdirSync(process.env.FOOTER_SCREENSHOT_DIR,{recursive:true});
-      await page.screenshot({path:`${process.env.FOOTER_SCREENSHOT_DIR}/footer-${viewport.width}x${viewport.height}-${theme}-${state}.png`});
+      await page.screenshot({path:`${process.env.FOOTER_SCREENSHOT_DIR}/footer-${viewport.width}x${viewport.height}-${theme}-${copyMode}-${state}.png`});
      }
     }
    }

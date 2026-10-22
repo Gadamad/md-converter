@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, EPUB books, web pages, pasted text, TXT, 
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.4.0 adds local EPUB conversion. Choose **Preferences → EPUB output → Markdown (.md)** or **Plain text (.txt)**, then add books to the queue as usual. Each book becomes one file in reading order, with Hungarian accents preserved. Named-folder copies and export retries support both extensions; Obsidian copies remain Markdown notes. Existing document formats, OCR recovery and the aligned footer keep their behavior. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.4.1 adds an existing-folder picker to **Save an extra copy**, alongside the named-subfolder option. Version 0.4.0 added local EPUB conversion: choose **Preferences → EPUB output → Markdown (.md)** or **Plain text (.txt)**, then add books to the queue as usual. Each book becomes one file in reading order, with Hungarian accents preserved. Extra copies and export retries support both extensions; Obsidian copies remain Markdown notes. Existing document formats, OCR recovery and the aligned footer keep their behavior. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -113,7 +113,7 @@ That means reinstalling the app no longer removes previous converted files.
 5. Use **Stop & save** to retain completed work and leave unfinished items for later. Reopen the app to find the same collection and statuses. Missing sources offer **Locate file**.
 6. Use **Open output** to find your files. Preferences control appearance, destination, original image text and automatic opening of Finder.
 
-Tick **Save to a named folder** on the dashboard to request an extra copy, then enter a folder name in the dialog. Its full destination is shown before saving. The app remembers this choice; **Change name** selects another name and unticking disables copies for new work. The named folder sits directly inside the current **Save to** location and keeps the same format and workbook subfolders as the regular output. Hungarian accents are preserved. Existing files and edited copies receive collision-safe filenames instead of being overwritten.
+Tick **Save an extra copy** on the dashboard. Choose **New folder inside Save to** and enter a name, or select **Existing folder → Choose existing folder…** to browse for a folder you already have. Review the full destination and press **Use folder** to save; Cancel leaves your previous choice intact. **Change folder…** reopens these choices, and unticking disables copies for new work. Both modes keep the same format and workbook subfolders as the regular output. Hungarian accents are preserved. Existing files and edited copies receive collision-safe filenames instead of being overwritten. An unavailable selected folder is reported without recreating it; regular outputs remain saved and delivery can be retried after reconnecting the folder.
 
 If the extra copy fails, the normal output and recognized image text stay saved. **Retry failed** completes delivery from those saved results. Work that has already started retains its original output and copy destinations, even if the dashboard choice changes later. Existing completed items are not copied retroactively.
 

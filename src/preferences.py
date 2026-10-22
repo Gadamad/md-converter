@@ -64,6 +64,26 @@ def _parse_copy_subfolder(value: object) -> str | None:
         return None
 
 
+def validate_copy_existing_dir(value: object) -> Path | None:
+    """Validate a stored selection without requiring a mounted destination."""
+    if value is None:
+        return None
+    if not isinstance(value, (str, Path)) or not str(value):
+        raise ValueError('Choose an existing folder with an absolute path.')
+    path = Path(value)
+    if (not path.is_absolute() or '..' in path.parts
+            or any(unicodedata.category(c).startswith('C') for c in str(value))):
+        raise ValueError('Choose an existing folder with an absolute path without traversal.')
+    return path
+
+
+def _parse_copy_existing_dir(value: object) -> Path | None:
+    try:
+        return validate_copy_existing_dir(value)
+    except ValueError:
+        return None
+
+
 def _parse_auto_open_output(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -116,6 +136,7 @@ class Preferences:
     show_source_details: bool = False
     copy_subfolder: str | None = None
     epub_output_format: EpubOutputFormat = DEFAULT_EPUB_OUTPUT_FORMAT
+    copy_existing_dir: Path | None = None
 
     def __post_init__(self) -> None:
         if self.theme not in THEME_CHOICES:
@@ -128,6 +149,9 @@ class Preferences:
         if not isinstance(self.show_source_details, bool):
             raise ValueError('Show source details must be a boolean.')
         object.__setattr__(self, 'copy_subfolder', validate_copy_subfolder(self.copy_subfolder))
+        object.__setattr__(self, 'copy_existing_dir', validate_copy_existing_dir(self.copy_existing_dir))
+        if self.copy_subfolder is not None and self.copy_existing_dir is not None:
+            raise ValueError('Choose either a named subfolder or an existing folder.')
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -139,10 +163,12 @@ class Preferences:
             "include_subfolders": self.include_subfolders,
             "show_source_details": self.show_source_details,
             "copy_subfolder": self.copy_subfolder,
+            "copy_existing_dir": str(self.copy_existing_dir) if self.copy_existing_dir is not None else None,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> Preferences:
+        name = _parse_copy_subfolder(data.get('copy_subfolder'))
         return cls(
             theme=_parse_theme(data.get("theme", DEFAULT_THEME)),
             raw_ocr_mode=_parse_raw_ocr_mode(data.get("raw_ocr_mode", DEFAULT_RAW_OCR_MODE)),
@@ -153,7 +179,10 @@ class Preferences:
                                 else DEFAULT_INCLUDE_SUBFOLDERS),
             show_source_details=(data['show_source_details'] if isinstance(data.get('show_source_details'), bool)
                                  else False),
-            copy_subfolder=_parse_copy_subfolder(data.get('copy_subfolder')),
+            copy_subfolder=name,
+            # Preserve the older named setting if manually edited disk data
+            # contains both; explicit conflicting API saves are rejected.
+            copy_existing_dir=None if name is not None else _parse_copy_existing_dir(data.get('copy_existing_dir')),
         )
 
     def save(self, path: Path) -> None:

@@ -247,6 +247,19 @@ class Api(SavedQueueApi):
         return self._preferences.output_dir or OUTPUT_DIR
 
     def _copy_dir_for_preferences(self, preferences, *, validate_destination=True) -> Path | None:
+        existing = getattr(preferences, 'copy_existing_dir', None)
+        if existing is not None:
+            from preferences import validate_copy_existing_dir
+            from output_copy import validate_copy_manifest, validate_existing_copy_directory
+            destination = validate_copy_existing_dir(existing)
+            base = (preferences.output_dir or OUTPUT_DIR).resolve()
+            validate_copy_manifest(base_dir=base, copy_dir=destination, manifest={}, copy_mode='existing')
+            if validate_destination:
+                try:
+                    validate_existing_copy_directory(base_dir=base, copy_dir=destination)
+                except OSError as exc:
+                    raise ValueError('The selected copy folder is unavailable. Reconnect it or choose another folder.') from exc
+            return destination
         name = getattr(preferences, 'copy_subfolder', None)
         if name is None:
             return None
@@ -426,11 +439,21 @@ class Api(SavedQueueApi):
                 if 'copy_subfolder' in payload:
                     from preferences import validate_copy_subfolder
                     data['copy_subfolder'] = validate_copy_subfolder(payload['copy_subfolder'])
+                if 'copy_existing_dir' in payload:
+                    from preferences import validate_copy_existing_dir
+                    data['copy_existing_dir'] = validate_copy_existing_dir(payload['copy_existing_dir'])
+                if data.get('copy_subfolder') is not None and data.get('copy_existing_dir') is not None:
+                    raise ValueError('Choose either a named subfolder or an existing folder.')
                 if 'epub_output_format' in payload:
                     from preferences import validate_epub_output_format
                     data['epub_output_format'] = validate_epub_output_format(payload['epub_output_format'])
             preferences = Preferences.from_dict(data)
-            self._copy_dir_for_preferences(preferences)
+            # An unplugged optional copy root must not prevent unrelated
+            # settings from saving. New selections still require a real folder;
+            # every save checks overlap, and delivery checks availability again.
+            check_destination = not (getattr(preferences, 'copy_existing_dir', None) is not None
+                                     and (not isinstance(payload, dict) or 'copy_existing_dir' not in payload))
+            self._copy_dir_for_preferences(preferences, validate_destination=check_destination)
             self._save_preferences(preferences)
             # Intake threads see only committed immutable preferences, even if
             # saving fails or a native folder drop arrives during the write.
@@ -455,7 +478,43 @@ class Api(SavedQueueApi):
         try:
             if self._job_running:
                 raise RuntimeError('Cannot change the copy folder while a conversion is running.')
-            return self.save_preferences({'copy_subfolder': name})
+            return self.save_preferences({'copy_subfolder': name, 'copy_existing_dir': None})
+        finally:
+            self._job_lock.release()
+
+    def set_copy_existing_directory(self, directory):
+        if not self._job_lock.acquire(blocking=False):
+            raise RuntimeError('Cannot change the copy folder while a conversion is running.')
+        try:
+            if self._job_running:
+                raise RuntimeError('Cannot change the copy folder while a conversion is running.')
+            from preferences import validate_copy_existing_dir
+            selected = validate_copy_existing_dir(directory)
+            if selected is None:
+                raise ValueError('Choose an existing folder.')
+            return self.save_preferences({'copy_subfolder': None, 'copy_existing_dir': str(selected.resolve())})
+        finally:
+            self._job_lock.release()
+
+    def browse_copy_directory(self):
+        """Stage a native folder selection; only Use folder saves preferences."""
+        if not self._job_lock.acquire(blocking=False):
+            raise RuntimeError('Cannot choose the copy folder while a conversion is running.')
+        try:
+            if self._job_running:
+                raise RuntimeError('Cannot choose the copy folder while a conversion is running.')
+            if not self.window:
+                return None
+            current = self._effective_copy_dir(validate_destination=False)
+            result = self.window.create_file_dialog(webview.FOLDER_DIALOG, allow_multiple=False,
+                directory=str(current if current is not None and current.is_dir() else self._effective_output_dir().parent))
+            if not result:
+                return None
+            from preferences import validate_copy_existing_dir
+            selected = validate_copy_existing_dir(result[0])
+            if selected is None or not selected.is_dir():
+                raise ValueError('Choose an existing folder.')
+            return str(selected.resolve())
         finally:
             self._job_lock.release()
 

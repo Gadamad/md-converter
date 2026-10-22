@@ -203,7 +203,8 @@ class QueueRunner:
                 atomic_write_text(Path(item['receipt_path']), json.dumps(receipt))
             try:
                 deliver_output_copies(published, base_dir=Path(item['options']['output_dir']),
-                    copy_dir=Path(copy_dir), manifest=receipt, persist=persist_receipt)
+                    copy_dir=Path(copy_dir), manifest=receipt, persist=persist_receipt,
+                    copy_mode=item['options'].get('copy_mode', 'subfolder'))
             except (OSError, ValueError) as exc:
                 raise RuntimeError(f'Converted output is saved; additional copy failed: {exc}') from exc
 
@@ -230,11 +231,16 @@ class QueueRunner:
                     checkpoint.report['queue_owned'] = True
                     if options.get('copy_dir'):
                         checkpoint.report['copy_dir'] = options['copy_dir']
+                        if options.get('copy_mode', 'subfolder') != 'subfolder':
+                            checkpoint.report['copy_mode'] = options['copy_mode']
                     checkpoint.save('running')
                 checkpoint_path = str(checkpoint.report_path)
                 self.store.update_items([item['id'] for item in items], checkpoint_path=checkpoint_path)
                 retry_failed = False  # A newly linked checkpoint contains pending images.
             checkpoint = QuoteCheckpoint.load(Path(checkpoint_path))
+            if (checkpoint.report.get('copy_dir') != options.get('copy_dir')
+                    or checkpoint.report.get('copy_mode', 'subfolder') != options.get('copy_mode', 'subfolder')):
+                raise ValueError('The image copy destination differs from the saved queue destination.')
             self.on_change()
             def started(n, count, name):
                 nonlocal active_id

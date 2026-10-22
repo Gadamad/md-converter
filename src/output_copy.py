@@ -10,6 +10,7 @@ from file_utils import reserve_output_path
 
 _EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
 _UNSPECIFIED = object()
+_PRIMARY_OUTPUT_FOLDERS = frozenset({'quotes', 'pdf', 'docx', 'spreadsheets', 'html', 'txt', 'rtf', 'epub'})
 
 
 def _absolute(value, label):
@@ -21,11 +22,21 @@ def _absolute(value, label):
     return path
 
 
-def _roots(base_dir, copy_dir):
+def _roots(base_dir, copy_dir, copy_mode):
+    if not isinstance(copy_mode, str) or copy_mode not in ('subfolder', 'existing'):
+        raise ValueError('Copy mode must be subfolder or existing')
     base = _absolute(base_dir, 'output directory')
     destination = _absolute(copy_dir, 'copy directory')
-    if destination == base or destination.parent != base:
-        raise ValueError('The copy directory must be a direct child of the output directory')
+    if copy_mode == 'subfolder':
+        if destination == base or destination.parent != base:
+            raise ValueError('The copy directory must be a direct child of the output directory')
+    else:
+        if base.is_relative_to(destination):
+            raise ValueError('An existing copy folder cannot be the output directory or its ancestor')
+        if destination.is_relative_to(base):
+            relative = destination.relative_to(base)
+            if relative.parts[0].casefold() in _PRIMARY_OUTPUT_FOLDERS:
+                raise ValueError('An existing copy folder cannot use a regular export subtree')
     return base, destination
 
 
@@ -35,14 +46,15 @@ def _relative_source(source, base, destination):
         relative = source.relative_to(base)
     except ValueError:
         raise ValueError('Copy sources must be inside the output directory') from None
-    if source.suffix.lower() not in {'.md', '.txt'} or not relative.parts or relative.parts[0] == destination.name:
+    if source.suffix.lower() not in {'.md', '.txt'} or not relative.parts or source.is_relative_to(destination):
         raise ValueError('Only primary Markdown or text outputs can be copied')
     return source, relative
 
 
-def validate_copy_manifest(*, base_dir: Path, copy_dir: Path, manifest: dict) -> None:
+def validate_copy_manifest(*, base_dir: Path, copy_dir: Path, manifest: dict,
+                           copy_mode: str = 'subfolder') -> None:
     """Check metadata only; unavailable destinations must not block journal reads."""
-    base, destination = _roots(base_dir, copy_dir)
+    base, destination = _roots(base_dir, copy_dir, copy_mode)
     if not isinstance(manifest, dict):
         raise ValueError('Invalid copy manifest')
     if 'copy_pending' in manifest and not isinstance(manifest['copy_pending'], bool):
@@ -82,6 +94,71 @@ def _no_symlinks(root, path):
         current = current / part
         if current.is_symlink():
             raise ValueError('Copy paths cannot use symbolic links')
+
+
+def _mounted_identity(path):
+    try:
+        state = path.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return state.st_dev, state.st_ino
+
+
+def _existing_root(base, destination):
+    # These paths were canonicalized when selected. A new link anywhere along
+    # their spelling must not silently redirect delivery after that selection.
+    _no_symlinks(Path(base.anchor), base)
+    _no_symlinks(Path(destination.anchor), destination)
+    if not destination.is_dir():
+        raise OSError('The selected copy folder is unavailable; restore it before retrying')
+    # APFS can resolve differently capitalized spellings to the same directory.
+    # Mounted identity complements pure lexical validation without changing
+    # metadata loading for a destination that is currently disconnected.
+    destination_id = _mounted_identity(destination)
+    if destination_id is None:
+        raise OSError('The selected copy folder is unavailable; restore it before retrying')
+    if any(_mounted_identity(parent) == destination_id for parent in (base, *base.parents)):
+        raise ValueError('An existing copy folder cannot be the output directory or its ancestor')
+    primary_ids = set()
+    for name in _PRIMARY_OUTPUT_FOLDERS:
+        identity = _mounted_identity(base / name)
+        if identity is not None:
+            primary_ids.add(identity)
+    if any(_mounted_identity(parent) in primary_ids for parent in (destination, *destination.parents)):
+        raise ValueError('An existing copy folder cannot use a regular export subtree')
+
+
+def validate_existing_copy_directory(*, base_dir: Path, copy_dir: Path) -> None:
+    """Validate a selected mounted directory without creating or changing files."""
+    base, destination = _roots(base_dir, copy_dir, 'existing')
+    _existing_root(base, destination)
+
+
+def _existing_parent(base, destination, parent):
+    _existing_root(base, destination)
+    _no_symlinks(destination, parent)
+    current = destination
+    for part in parent.relative_to(destination).parts:
+        current /= part
+        # Never use parents=True here: a removed selected root must stay absent.
+        current.mkdir(exist_ok=True)
+    _existing_root(base, destination)
+    _no_symlinks(destination, parent)
+
+
+def _reserve_existing_copy(parent, source):
+    # The parent has already been prepared within a checked, existing root.
+    # Unlike the named-folder helper, reservation cannot recreate that root.
+    index = 1
+    while True:
+        stem = source.stem if index == 1 else f'{source.stem}_{index}'
+        target = parent / f'{stem}{source.suffix}'
+        try:
+            with target.open('xb'):
+                pass
+            return target
+        except FileExistsError:
+            index += 1
 
 
 def _sha256(path):
@@ -146,9 +223,13 @@ def _owned_content(target, record):
 
 
 def deliver_output_copies(sources: list[Path], *, base_dir: Path, copy_dir: Path,
-                          manifest: dict, persist) -> None:
-    validate_copy_manifest(base_dir=base_dir, copy_dir=copy_dir, manifest=manifest)
-    base, destination = _roots(base_dir, copy_dir)
+                          manifest: dict, persist, copy_mode: str = 'subfolder') -> None:
+    validate_copy_manifest(base_dir=base_dir, copy_dir=copy_dir, manifest=manifest, copy_mode=copy_mode)
+    base, destination = _roots(base_dir, copy_dir, copy_mode)
+    existing = copy_mode == 'existing'
+    target_root = destination if existing else base
+    if existing:
+        _existing_root(base, destination)
     planned = []
     seen = set()
     # Reject all unsafe inputs before reservations, manifest writes or publication.
@@ -158,17 +239,22 @@ def deliver_output_copies(sources: list[Path], *, base_dir: Path, copy_dir: Path
             continue
         seen.add(str(source))
         _no_symlinks(base, source)
-        _no_symlinks(base, (destination / relative).parent)
+        _no_symlinks(target_root, (destination / relative).parent)
         if not source.is_file():
             raise OSError('A primary output is unavailable for copying')
         planned.append((source, relative, _sha256(source)))
     for record in manifest.get('copy_exports', {}).values():
-        _no_symlinks(base, Path(record['path']).parent)
+        _no_symlinks(target_root, Path(record['path']).parent)
+
+    if existing:
+        _existing_root(base, destination)
 
     exports = manifest.setdefault('copy_exports', {})
     manifest['copy_pending'] = True
     persist()
     for source, relative, digest in planned:
+        if existing:
+            _existing_root(base, destination)
         key = str(source)
         record = exports.get(key)
         current_hash = None
@@ -179,8 +265,12 @@ def deliver_output_copies(sources: list[Path], *, base_dir: Path, copy_dir: Path
             owned, current_hash, expected_state = _owned_content(target, record)
         if not owned:
             parent = (destination / relative).parent
-            _no_symlinks(base, parent)
-            target = reserve_output_path(parent, source.stem, source.suffix)
+            if existing:
+                _existing_parent(base, destination, parent)
+                target = _reserve_existing_copy(parent, source)
+            else:
+                _no_symlinks(base, parent)
+                target = reserve_output_path(parent, source.stem, source.suffix)
             expected_state = _target_state(target)
             current_hash = None
             record = {'path': str(target), 'sha256': None, 'pending_sha256': digest}
@@ -192,12 +282,17 @@ def deliver_output_copies(sources: list[Path], *, base_dir: Path, copy_dir: Path
                 record['sha256'] = current_hash
             record['pending_sha256'] = digest
         persist()
+        if existing:
+            _existing_root(base, destination)
         if _target_state(target) != expected_state:
             raise OSError('The additional copy changed before delivery; retry to preserve the edited file')
         if current_hash != digest:
-            _no_symlinks(base, target.parent)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _no_symlinks(base, target.parent)
+            if existing:
+                _existing_parent(base, destination, target.parent)
+            else:
+                _no_symlinks(base, target.parent)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                _no_symlinks(base, target.parent)
             atomic_copy_file(source, target, expected_state=expected_state)
             if _sha256(target) != digest:
                 raise OSError('The primary output changed during copy delivery; retry the saved output')

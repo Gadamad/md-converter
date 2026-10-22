@@ -88,6 +88,7 @@ textarea::placeholder { color:var(--muted); }
 #queue-delete-title { overflow-wrap:anywhere; } #queue-delete-copy { margin:0; color:var(--muted); font-size:13px; line-height:1.6; } #queue-delete-modal .modal-footer button { min-height:36px; }
 #queue-name-modal label, #copy-folder-modal label { display:block; font-size:13px; font-weight:550; margin-bottom:7px; } #queue-name-input, #copy-folder-input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); -webkit-user-select:text; user-select:text; }
 #queue-name-error, #queue-delete-error, #copy-folder-error { color:var(--danger); font-size:12px; margin:9px 0 0; overflow-wrap:anywhere; }
+.copy-folder-modes { border:0; padding:0; margin:0; min-width:0; } .copy-folder-section+.copy-folder-section { margin-top:18px; } #copy-folder-modal .copy-folder-mode { display:flex; align-items:center; gap:7px; margin:0; font-weight:500; cursor:pointer; } .copy-folder-mode input { margin:0; flex:none; accent-color:var(--accent); } .copy-folder-fields { margin-top:10px; } #copy-existing-path { color:var(--muted); font-size:11px; overflow-wrap:anywhere; margin:7px 0 0; -webkit-user-select:text; user-select:text; }
 #copy-folder-help { color:var(--muted); font-size:12px; line-height:1.5; margin:12px 0 0; } #copy-folder-preview { color:var(--muted); font-size:11px; overflow-wrap:anywhere; margin:7px 0 0; }
 .modal-body { padding:4px 22px; } .setting { padding:17px 0; border-bottom:1px solid var(--line); } .setting:last-child { border:0; } .setting-top { display:flex; align-items:center; justify-content:space-between; gap:20px; } .setting label { font-weight:550; font-size:13px; } .setting p { font-size:12px; color:var(--muted); margin:5px 0 0; } select { color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; padding:7px; max-width:235px; } .path-row { display:flex; gap:8px; align-items:center; margin-top:10px; } .path-value { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .modal-footer { display:flex; gap:8px; justify-content:flex-end; align-items:center; padding:16px 22px; background:var(--bg); border-top:1px solid var(--line); } .version { margin-right:auto; color:var(--muted); font-size:11px; } .modal-footer .primary { min-width:80px; min-height:36px; }
@@ -134,12 +135,16 @@ textarea::placeholder { color:var(--muted); }
 </section>
 <footer class="bottom">
  <div class="destination"><svg><use href="#i-folder"/></svg><span>Save to</span><span id="destination-path">Default output folder</span><button id="change-output-btn" class="quiet">Change…</button></div>
- <div class="save-options"><div class="copy-destination"><label><input id="copy-subfolder-cb" type="checkbox" aria-describedby="copy-destination-path">Save to a named folder</label><span id="copy-destination-path">Extra copy of finished files</span><button id="copy-folder-change-btn" class="quiet" aria-haspopup="dialog" hidden>Change name…</button></div><label class="vault-option" id="vault-option"><input id="vault-cb" type="checkbox" VAULT_CHECKED>Copy to Obsidian vault</label></div>
+ <div class="save-options"><div class="copy-destination"><label><input id="copy-subfolder-cb" type="checkbox" aria-describedby="copy-destination-path">Save an extra copy</label><span id="copy-destination-path">Extra copy of finished files</span><button id="copy-folder-change-btn" class="quiet" aria-haspopup="dialog" hidden>Change folder…</button></div><label class="vault-option" id="vault-option"><input id="vault-cb" type="checkbox" VAULT_CHECKED>Copy to Obsidian vault</label></div>
  <div class="action-row"><button id="open-btn"><svg><use href="#i-folder"/></svg>Open output</button><button id="retry-failed-btn" hidden>Retry failed</button><button id="convert-btn" class="primary" disabled>Convert queue<svg><use href="#i-arrow"/></svg></button><button id="abort-btn" class="danger" hidden>Stop & save</button></div>
  <span id="badge"></span>
 </footer>
 </main>
-<dialog id="copy-folder-modal" aria-labelledby="copy-folder-title"><form id="copy-folder-form"><div class="modal-header"><h2 id="copy-folder-title">Name your copy folder</h2></div><div class="modal-body"><label for="copy-folder-input">Folder name</label><input id="copy-folder-input" type="text" required autocomplete="off" autofocus aria-describedby="copy-folder-help copy-folder-preview copy-folder-error"><p id="copy-folder-help">Finished files will also be copied into this folder inside Save to. Your regular exports stay in place.</p><p id="copy-folder-preview"></p><p id="copy-folder-error" role="alert" hidden></p></div><div class="modal-footer"><button id="copy-folder-cancel-btn" type="button">Cancel</button><button id="copy-folder-save-btn" type="submit" class="primary">Use folder</button></div></form></dialog>
+<dialog id="copy-folder-modal" aria-labelledby="copy-folder-title"><form id="copy-folder-form"><div class="modal-header"><h2 id="copy-folder-title">Choose your copy folder</h2></div><div class="modal-body">
+ <fieldset class="copy-folder-modes"><legend class="visually-hidden">Copy destination</legend>
+  <div class="copy-folder-section"><label class="copy-folder-mode"><input id="copy-mode-named" type="radio" name="copy-folder-mode" value="named" checked>New folder inside Save to</label><div id="copy-named-fields" class="copy-folder-fields"><label for="copy-folder-input">Folder name</label><input id="copy-folder-input" type="text" required autocomplete="off" autofocus aria-describedby="copy-folder-help copy-folder-preview copy-folder-error"><p id="copy-folder-preview"></p></div></div>
+  <div class="copy-folder-section"><label class="copy-folder-mode"><input id="copy-mode-existing" type="radio" name="copy-folder-mode" value="existing">Existing folder</label><div id="copy-existing-fields" class="copy-folder-fields" hidden><button id="copy-folder-browse-btn" type="button" class="small" aria-describedby="copy-existing-path copy-folder-error">Choose existing folder…</button><p id="copy-existing-path" role="status" aria-live="polite">No folder selected yet.</p></div></div>
+ </fieldset><p id="copy-folder-help">Finished files will also be copied to this folder. Your regular exports stay in place.</p><p id="copy-folder-error" role="alert" hidden></p></div><div class="modal-footer"><button id="copy-folder-cancel-btn" type="button">Cancel</button><button id="copy-folder-save-btn" type="submit" class="primary">Use folder</button></div></form></dialog>
 <div id="queue-actions-menu" class="queue-actions-menu" role="menu" aria-label="Queue actions" hidden><button id="clear-completed-btn" class="quiet small" role="menuitem" disabled>Clear completed</button><button id="clear-folders-btn" class="quiet small" role="menuitem" disabled>Clear all items</button><button id="delete-queue-btn" class="quiet small" role="menuitem" aria-haspopup="dialog" disabled>Delete queue…</button></div>
 <dialog id="queue-delete-modal" aria-labelledby="queue-delete-title" aria-describedby="queue-delete-copy"><div class="modal-header"><h2 id="queue-delete-title">Delete queue?</h2></div><div class="modal-body"><p id="queue-delete-copy"></p><p id="queue-delete-error" role="alert" hidden></p></div><div class="modal-footer"><button id="queue-delete-cancel-btn" autofocus>Cancel</button><button id="queue-delete-confirm-btn" class="danger">Delete queue</button></div></dialog>
 <dialog id="queue-name-modal" aria-labelledby="queue-name-title"><form id="queue-name-form"><div class="modal-header"><h2 id="queue-name-title">New queue</h2></div><div class="modal-body"><label for="queue-name-input">Queue name</label><input id="queue-name-input" type="text" maxlength="120" required autocomplete="off" autofocus aria-describedby="queue-name-error"><p id="queue-name-error" role="alert" hidden></p></div><div class="modal-footer"><button id="queue-name-cancel-btn" type="button">Cancel</button><button id="queue-name-save-btn" type="submit" class="primary">Create queue</button></div></form></dialog>
@@ -164,10 +169,10 @@ let queueState = {active_id:null,queues:[],items:[],waiting:0,failed:0,done:0,to
 let queueAttentionOnly = false;
 let queueReady = false, queueMutationPending = false, folderPreferencePending = false, displayPreferencePending = false, queueNameMode = 'create', queueNameReturnFocus = null, lastSaveError = '';
 let queueDeleteId = null, queueDeleteReturnFocus = null;
-let copyPreferencePending = false, copyFolderReturnFocus = null, lastCopySubfolder = '';
+let copyPreferencePending = false, copyFolderReturnFocus = null, lastCopySubfolder = '', copyFolderMode = 'named', copyExistingDraft = null;
 const QUEUE_PAGE_SIZE = 200;
 let queuePage = 0;
-let savedPreferences = {theme:'system',raw_ocr_mode:'different',epub_output_format:'md',output_dir:null,auto_open_output:false,include_subfolders:true,show_source_details:false,copy_subfolder:null};
+let savedPreferences = {theme:'system',raw_ocr_mode:'different',epub_output_format:'md',output_dir:null,auto_open_output:false,include_subfolders:true,show_source_details:false,copy_subfolder:null,copy_existing_dir:null};
 let applicationState = {}, toastTimer;
 const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 4500); }
@@ -187,9 +192,11 @@ function updateActions() {
  $('include-subfolders-cb').disabled = locked || unavailable || !queueReady;
  $('show-source-details-cb').disabled = locked || displayPreferencePending || !queueReady;
  $('copy-subfolder-cb').disabled = locked;
- $('copy-folder-change-btn').disabled = locked || !savedPreferences.copy_subfolder;
- $('copy-folder-save-btn').disabled = locked || !$('copy-folder-input').value.trim();
- $('copy-folder-input').disabled = busy || copyPreferencePending;
+ $('copy-folder-change-btn').disabled = locked || !(savedPreferences.copy_subfolder || savedPreferences.copy_existing_dir);
+ $('copy-folder-save-btn').disabled = locked || !(copyFolderMode === 'existing' ? copyExistingDraft : $('copy-folder-input').value.trim());
+ $('copy-folder-input').disabled = locked || copyFolderMode !== 'named';
+ $('copy-folder-browse-btn').disabled = locked;
+ $('copy-mode-named').disabled = $('copy-mode-existing').disabled = locked;
  $('copy-folder-cancel-btn').disabled = copyPreferencePending;
  if (!applicationState.vault_configured) $('vault-cb').disabled = true;
  $('add-text-btn').disabled = locked || unavailable || !$('url-input').value.trim();
@@ -374,12 +381,36 @@ function renderRecoveryJobs(jobs) {
  updateActions();
 }
 function renderApplicationState(state) { applicationState = state; $('destination-path').textContent = state.output_dir || 'Default output folder'; $('destination-path').title = state.output_dir || ''; $('app-version').textContent = 'MD Converter '+(state.version || ''); $('vault-option').title = state.vault_configured ? 'Also save a copy in your configured vault' : 'No Obsidian vault configured'; $('vault-setting').hidden = !state.vault_configured; if (!state.vault_configured) $('vault-cb').checked = false; renderRecoveryJobs(state.recovery_jobs || []); if (state.queue) renderSavedQueue(state.queue); renderCopyDestination(); updateActions(); }
-function applyPreferences(prefs) { const previousCopy = savedPreferences.copy_subfolder; savedPreferences = {...prefs,epub_output_format:prefs.epub_output_format === 'txt' ? 'txt' : 'md',include_subfolders:prefs.include_subfolders !== false,show_source_details:prefs.show_source_details === true,copy_subfolder:typeof prefs.copy_subfolder === 'string' ? prefs.copy_subfolder : null}; if (savedPreferences.copy_subfolder) lastCopySubfolder = savedPreferences.copy_subfolder; if (previousCopy !== savedPreferences.copy_subfolder) applicationState = {...applicationState,copy_dir:null,copy_error:''}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('epub-output-format-select').value = savedPreferences.epub_output_format; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); $('include-subfolders-cb').checked = savedPreferences.include_subfolders; $('show-source-details-cb').checked = savedPreferences.show_source_details; document.querySelectorAll('#folder-queue .queue-row').forEach(row=>row.classList.toggle('compact',!savedPreferences.show_source_details)); renderCopyDestination(); }
+function applyPreferences(prefs) { const previousCopy = savedPreferences.copy_subfolder, previousExisting = savedPreferences.copy_existing_dir; savedPreferences = {...prefs,epub_output_format:prefs.epub_output_format === 'txt' ? 'txt' : 'md',include_subfolders:prefs.include_subfolders !== false,show_source_details:prefs.show_source_details === true,copy_subfolder:typeof prefs.copy_subfolder === 'string' ? prefs.copy_subfolder : null,copy_existing_dir:typeof prefs.copy_existing_dir === 'string' ? prefs.copy_existing_dir : null}; if (savedPreferences.copy_subfolder) lastCopySubfolder = savedPreferences.copy_subfolder; if (previousCopy !== savedPreferences.copy_subfolder || previousExisting !== savedPreferences.copy_existing_dir) applicationState = {...applicationState,copy_dir:null,copy_error:''}; document.body.dataset.theme = prefs.theme === 'system' ? (themeMedia.matches ? 'dark' : 'light') : prefs.theme; $('theme-select').value = prefs.theme; $('raw-ocr-mode-select').value = prefs.raw_ocr_mode; $('epub-output-format-select').value = savedPreferences.epub_output_format; $('output-dir-value').textContent = prefs.output_dir || 'Default output folder'; $('output-dir-value').title = prefs.output_dir || ''; $('auto-open-output-cb').checked = Boolean(prefs.auto_open_output); $('include-subfolders-cb').checked = savedPreferences.include_subfolders; $('show-source-details-cb').checked = savedPreferences.show_source_details; document.querySelectorAll('#folder-queue .queue-row').forEach(row=>row.classList.toggle('compact',!savedPreferences.show_source_details)); renderCopyDestination(); }
 function copyPathPreview(name) { const base = applicationState.output_dir || savedPreferences.output_dir; return base && name ? base.replace(/\/$/,'')+'/'+name : 'Extra copy inside the Save to folder'; }
 function renderCopyDestination() {
- const name = savedPreferences.copy_subfolder, error = name && applicationState.copy_error;
- $('copy-subfolder-cb').checked = Boolean(name); $('copy-folder-change-btn').hidden = !name;
- const path = $('copy-destination-path'); path.textContent = error || (name ? applicationState.copy_dir || copyPathPreview(name) : 'Extra copy of finished files'); path.title = path.textContent; path.classList.toggle('error',Boolean(error));
+ const name = savedPreferences.copy_subfolder, existing = savedPreferences.copy_existing_dir, enabled = Boolean(name || existing), error = enabled && applicationState.copy_error;
+ $('copy-subfolder-cb').checked = enabled; $('copy-folder-change-btn').hidden = !enabled;
+ const path = $('copy-destination-path'); path.textContent = error || (enabled ? applicationState.copy_dir || existing || copyPathPreview(name) : 'Extra copy of finished files'); path.title = path.textContent; path.classList.toggle('error',Boolean(error));
+}
+function renderCopyFolderDraft() {
+ const existing = copyFolderMode === 'existing';
+ $('copy-mode-named').checked = !existing; $('copy-mode-existing').checked = existing;
+ $('copy-named-fields').hidden = existing; $('copy-existing-fields').hidden = !existing;
+ $('copy-folder-input').required = !existing;
+ $('copy-folder-preview').textContent = copyPathPreview($('copy-folder-input').value.trim());
+ $('copy-existing-path').textContent = copyExistingDraft || 'No folder selected yet.'; $('copy-existing-path').title = copyExistingDraft || '';
+ updateActions();
+}
+function chooseCopyMode(mode) {
+ if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) return;
+ copyFolderMode = mode; $('copy-folder-error').hidden = true; renderCopyFolderDraft();
+}
+async function browseCopyFolder() {
+ if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) return;
+ copyPreferencePending = true; $('copy-folder-error').hidden = true; updateActions();
+ try {
+  if (!window.pywebview) throw Error('The app is not connected yet. Please try again.');
+  const selected = await pywebview.api.browse_copy_directory();
+  if (typeof selected === 'string' && selected) copyExistingDraft = selected;
+ } catch(error) {
+  $('copy-folder-error').textContent = 'Could not choose folder: '+(error.message || String(error)); $('copy-folder-error').hidden = false;
+ } finally { copyPreferencePending = false; renderCopyFolderDraft(); $('copy-folder-browse-btn').focus(); }
 }
 function openCopyFolder(control) {
  if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) { renderCopyDestination(); return; }
@@ -387,16 +418,17 @@ function openCopyFolder(control) {
  let suggestion = queueState.queues.find(queue => queue.id === queueState.active_id)?.name || '';
  if (['quotes','pdf','docx','spreadsheets','html','txt','rtf','epub'].includes(suggestion.toLowerCase())) suggestion += ' exports';
  $('copy-folder-input').value = savedPreferences.copy_subfolder || lastCopySubfolder || suggestion;
+ copyFolderMode = savedPreferences.copy_existing_dir ? 'existing' : 'named'; copyExistingDraft = savedPreferences.copy_existing_dir;
  $('copy-folder-error').hidden = true; $('copy-folder-error').textContent = '';
- $('copy-folder-preview').textContent = copyPathPreview($('copy-folder-input').value.trim());
- renderCopyDestination(); updateActions(); $('copy-folder-modal').showModal(); $('copy-folder-input').focus(); $('copy-folder-input').select();
+ renderCopyDestination(); renderCopyFolderDraft(); $('copy-folder-modal').showModal();
+ if (copyFolderMode === 'existing') $('copy-folder-browse-btn').focus(); else { $('copy-folder-input').focus(); $('copy-folder-input').select(); }
 }
-async function saveCopySubfolder(name) {
+async function saveCopySubfolder(name, existing=false) {
  if (busy || queueMutationPending || folderPreferencePending || displayPreferencePending || copyPreferencePending) { renderCopyDestination(); return false; }
  copyPreferencePending = true; updateActions();
  try {
   if (!window.pywebview) throw Error('The app is not connected yet. Please try again.');
-  const prefs = await pywebview.api.set_copy_subfolder(name); applyPreferences(prefs);
+  const prefs = existing ? await pywebview.api.set_copy_existing_directory(name) : await pywebview.api.set_copy_subfolder(name); applyPreferences(prefs);
   const state = await callApi('get_application_state'); if (state && typeof state === 'object') renderApplicationState(state);
   return true;
  } catch(error) {
@@ -412,11 +444,14 @@ $('preferences-close-btn').onclick = closePreferences; $('preferences-cancel-btn
 $('preferences-modal').addEventListener('cancel',()=>applyPreferences(savedPreferences));
 $('copy-subfolder-cb').onchange = () => { const enable = $('copy-subfolder-cb').checked; if (enable) openCopyFolder($('copy-subfolder-cb')); else saveCopySubfolder(null); };
 $('copy-folder-change-btn').onclick = () => openCopyFolder($('copy-folder-change-btn'));
-$('copy-folder-input').oninput = () => { $('copy-folder-preview').textContent = copyPathPreview($('copy-folder-input').value.trim()); updateActions(); };
+$('copy-folder-input').oninput = renderCopyFolderDraft;
+$('copy-mode-named').onchange = () => chooseCopyMode('named');
+$('copy-mode-existing').onchange = () => chooseCopyMode('existing');
+$('copy-folder-browse-btn').onclick = browseCopyFolder;
 $('copy-folder-cancel-btn').onclick = () => $('copy-folder-modal').close();
 $('copy-folder-modal').addEventListener('cancel',event=>{ if (copyPreferencePending) event.preventDefault(); });
 $('copy-folder-modal').addEventListener('close',()=>{ renderCopyDestination(); if (copyFolderReturnFocus?.isConnected && !copyFolderReturnFocus.disabled) copyFolderReturnFocus.focus(); });
-$('copy-folder-form').onsubmit = async event => { event.preventDefault(); const name = $('copy-folder-input').value.trim(); if (name && await saveCopySubfolder(name)) $('copy-folder-modal').close(); };
+$('copy-folder-form').onsubmit = async event => { event.preventDefault(); const existing = copyFolderMode === 'existing', value = existing ? copyExistingDraft : $('copy-folder-input').value.trim(); if (value && await saveCopySubfolder(value,existing)) $('copy-folder-modal').close(); };
 $('theme-select').onchange = () => document.body.dataset.theme = $('theme-select').value === 'system' ? (themeMedia.matches ? 'dark' : 'light') : $('theme-select').value;
 $('output-dir-browse-btn').onclick = async () => { const selected = await callApi('browse_output_directory'); if (selected) { $('output-dir-value').textContent = selected; $('output-dir-value').title = selected; } };
 $('output-dir-reset-btn').onclick = () => { $('output-dir-value').textContent = 'Default output folder'; };

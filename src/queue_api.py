@@ -386,6 +386,8 @@ class SavedQueueApi:
             copy_dir = self._effective_copy_dir(validate_destination=False)
             if copy_dir is not None:
                 options['copy_dir'] = str(copy_dir)
+                if getattr(self._preferences, 'copy_existing_dir', None) is not None:
+                    options['copy_mode'] = 'existing'
         def progress(current, total, title):
             self._set_summary(f'Processing {current} / {total}: {title}')
             self._set_progress(100 * (current - 1) / total if total else 0)
