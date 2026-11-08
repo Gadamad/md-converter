@@ -7,3 +7,5 @@ The update can recover existing v0.4.1 PDF attempts when their cached Markdown m
 An isolated test recovered all three unresolved illustration pages of a 235-page PDF. Exactly those three pages were retried, all 231 saved page sections matched the previous export, and regular, extra-folder and Obsidian delivery passed.
 
 Validation: 758 tests and 62 subtests passed. Independent review and regression tests checked cache containment, snapshot and receipt integrity, and preservation of edited legacy exports. The partial row and actions were checked in actual Safari at 640 × 640 in dark appearance and 820 × 780 in light appearance with an isolated local preview. Five existing PyMuPDF deprecation warnings remain.
+
+The signed macOS app also recovered the saved failed item through its queue. Its final output changed only the three previously unresolved pages and was delivered byte for byte to the configured extra folder. The source, original cached partial, prior outputs, unrelated queue data and preferences were verified unchanged.
