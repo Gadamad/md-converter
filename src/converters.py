@@ -217,13 +217,13 @@ def build_header(title: str, source: str, word_count: int, **extras) -> str:
     return "\n".join(lines)
 
 
-def vault_frontmatter(title: str, source_type: str, source_file: str) -> str:
+def vault_frontmatter(title: str, source_type: str, source_file: str, *, created: date | None = None) -> str:
     """Generate Obsidian-compatible YAML frontmatter."""
     return (
         f"---\n"
         f"title: {json.dumps(title, ensure_ascii=False)}\n"
         f"tags: [converted, {source_type}]\n"
-        f"created: {date.today().isoformat()}\n"
+        f"created: {(created or date.today()).isoformat()}\n"
         f"source: {json.dumps(source_file, ensure_ascii=False)}\n"
         f"---\n\n"
     )

@@ -588,6 +588,41 @@ const fs = require('node:fs');
   await page.getByRole('button',{name:'Open original Saved quote.jpg',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['open_queue_item','kept']);
   assert.equal(await page.locator('.queue-status.done').textContent(),'Done','Open must preserve the completed entry');
+  await page.setViewportSize({width:640,height:640});
+  await page.evaluate(()=>{
+   switchSource('files');applyPreferences({...savedPreferences,show_source_details:false});
+   renderApplicationState({...applicationState,vault_configured:true,recovery_jobs:[]});
+   resetQueue({active_id:'partial-pdfs',queues:[{id:'partial-pdfs',name:'PDF conversion'}],items:[{id:'partial',kind:'file',title:'Book.PDF',source:'/tmp/Book.PDF',status:'failed',partial_pdf:true,output_path:'/tmp/exports/pdf/Book.md',error:'Partial PDF: OCR still needed on pages 4, 110, 190.'},{id:'no-export',kind:'file',title:'Article.pdf',source:'/tmp/Article.pdf',status:'failed',partial_pdf:true,error:'Partial PDF: Missing pages: 1. No partial export is available.'},{id:'relocate',kind:'file',title:'Moved.pdf',source:'/tmp/Moved.pdf',status:'failed',partial_pdf:true,error:'Partial PDF: Source moved. Use Locate file to reconnect it.'}],total:3,waiting:0,failed:3,review:0,done:0,busy:false});
+   document.querySelector('.operations-panel').scrollTop=0;
+   window.testCalls=[];
+   window.pywebview.api={open_partial_pdf:async id=>{window.testCalls.push(['open_partial_pdf',id]);return true;},retry_failed:async()=>{window.testCalls.push(['retry_failed']);return false;}};
+  });
+  const partialRow=page.locator('[data-item-id="partial"]'), missingExportRow=page.locator('[data-item-id="no-export"]');
+  assert.equal(await partialRow.locator('.queue-status').textContent(),'Partial');
+  assert.match(await partialRow.locator('.queue-error').textContent(),/pages 4, 110, 190/);
+  const partialLayout=await partialRow.evaluate(row=>{
+   const clip=row.closest('.operations-panel').getBoundingClientRect();
+   const buttons=[...row.querySelectorAll('.queue-item-actions button')];
+   const actionCenters=buttons.map(button=>{const bounds=button.getBoundingClientRect();return (bounds.top+bounds.bottom)/2;});
+   const visible=[row.querySelector('.queue-name'),row.querySelector('.queue-error'),row.querySelector('.queue-status'),...buttons].map(element=>{
+    const bounds=element.getBoundingClientRect();return {text:element.textContent,visible:bounds.top>=clip.top && bounds.bottom<=clip.bottom && bounds.left>=clip.left && bounds.right<=clip.right};
+   });
+   return {actionCenters,visible};
+  });
+  for(const element of partialLayout.visible) assert.ok(element.visible,`First partial row must show ${element.text} without scrolling at 640×640`);
+  assert.ok(Math.max(...partialLayout.actionCenters)-Math.min(...partialLayout.actionCenters)<=1,'Partial PDF actions fit on one line at 640×640');
+  assert.equal(await missingExportRow.locator('.queue-status').textContent(),'Partial');
+  assert.equal(await missingExportRow.getByRole('button',{name:/Locate file/}).count(),0,'Missing pages do not mean the source file moved');
+  assert.equal(await missingExportRow.getByRole('button',{name:/Open partial/}).count(),0,'Do not offer to open an unpublished export');
+  assert.equal(await page.getByRole('button',{name:'Locate file for Moved.pdf',exact:true}).count(),1,'A moved source still offers Locate file');
+  await page.locator('#queue-attention-btn').click();
+  assert.equal(await partialRow.isVisible(),true,'Partial files remain in the failed attention filter');
+  await page.getByRole('button',{name:'Open partial Book.PDF',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['open_partial_pdf','partial']);
+  assert.equal(await page.locator('#retry-failed-btn').isEnabled(),true);
+  await page.locator('#retry-failed-btn').click();
+  assert.deepEqual(await page.evaluate(()=>window.testCalls.pop()),['retry_failed']);
+  await page.locator('#queue-tab').click();
   for (const viewport of [{width:640,height:640},{width:820,height:780}]) {
    await page.setViewportSize(viewport);
    for (const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark']]) {

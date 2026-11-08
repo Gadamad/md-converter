@@ -2,6 +2,7 @@
 from itertools import groupby
 import json
 from pathlib import Path
+import re
 from uuid import uuid4
 
 from file_utils import atomic_write_chunks, atomic_write_text
@@ -9,6 +10,7 @@ from quote_checkpoint import QuoteCheckpoint, batch_lock, is_review_failure
 
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+_LEGACY_PDF_PARTIAL = re.compile(r'^PARTIAL -> ([^/\\\n]+\.md); OCR failed on pages \[(\d+(?:, \d+)*)\]$', re.M)
 
 
 class QueueRunner:
@@ -94,6 +96,8 @@ class QueueRunner:
         return self.store.state()
 
     def _document(self, item):
+        if self.route_fn is None and item['kind'] == 'file' and Path(item['source']).suffix.lower() == '.pdf':
+            return self._pdf_document(item)
         item_id = item['id']
         self.store.update_item(item_id, status='processing', error='')
         self.on_change()
@@ -155,6 +159,93 @@ class QueueRunner:
         except Exception as exc:
             self.store.update_item(item_id, status='failed', error=str(exc))
             self.on_status(f"Failed: {item['title']}: {exc}")
+        return True
+
+    def _pdf_document(self, item):
+        """Resume conversion by page; publish only the resulting snapshot."""
+        from pdf_delivery import migrate_pdf_receipt, publish_pdf_snapshot
+        from pdf_recovery import convert_queued_pdf
+
+        item_id = item['id']
+        previous_error = item['error'] or ''
+        legacy = _LEGACY_PDF_PARTIAL.search(previous_error)
+        partial = previous_error.startswith('Partial PDF:')
+        warning = previous_error.split('\n', 1)[0] if partial else ''
+        primary_published = False
+        root = self.cache_dir.resolve() / item_id
+        receipt_path = Path(item['receipt_path']) if item['receipt_path'] else root / uuid4().hex / 'receipt.json'
+        work = receipt_path.parent
+        # Keep the legacy diagnostic until migration is durable, including if
+        # Stop or a process interruption occurs before the first recovery pass.
+        self.store.update_item(item_id, status='processing', receipt_path=str(receipt_path))
+        self.on_change()
+        try:
+            if (receipt_path.name != 'receipt.json' or work.parent != root or not re.fullmatch(r'[0-9a-f]{32}', work.name)
+                    or receipt_path.resolve() != receipt_path):
+                raise ValueError('The saved PDF attempt path is invalid.')
+            work.mkdir(parents=True, exist_ok=True)
+            receipt = json.loads(receipt_path.read_text(encoding='utf-8')) if receipt_path.is_file() else None
+            if receipt is not None and not isinstance(receipt, dict):
+                raise ValueError('Invalid PDF delivery receipt.')
+            if receipt is not None and 'pdf_failed_pages' not in receipt:
+                # Older completed conversions can already have a delivery
+                # receipt. Preserve earlier user files while reusing its text.
+                receipt = migrate_pdf_receipt(self.store.get_item(item_id), receipt)
+                atomic_write_text(receipt_path, json.dumps(receipt))
+            if receipt is not None and type(receipt.get('pdf_delivery_pending')) is not bool:
+                raise ValueError('Invalid PDF delivery receipt.')
+            if receipt is None or (receipt['pdf_failed_pages'] and not receipt['pdf_delivery_pending']):
+                checkpoint = work / 'pdf-progress.json'
+                if (receipt is not None or partial) and not checkpoint.is_file():
+                    raise ValueError('Saved PDF page results are missing. The previous export is still available.')
+                legacy_output = work / 'converted' / 'pdf' / legacy[1] if legacy else None
+                legacy_pages = tuple(map(int, legacy[2].split(', '))) if legacy else ()
+                source = Path(item['source'])
+                if not source.is_file():
+                    raise FileNotFoundError('PDF source is missing. Restore it to retry saved pages, or use Locate file to start again.')
+                result = convert_queued_pdf(source, work, should_cancel=self.should_cancel,
+                    legacy_output=legacy_output, legacy_failed_pages=legacy_pages)
+                if result.canceled:
+                    self.store.update_item(item_id, status='failed' if (partial or legacy) else 'waiting')
+                    return False
+                if result.output_path is None:
+                    raise ValueError('No PDF export was produced.')
+                if receipt is None or receipt['source_output'] != str(result.output_path):
+                    receipt = {'source_output': str(result.output_path), 'word_count': result.word_count,
+                               'pdf_failed_pages': list(result.failed_pages), 'pdf_delivery_pending': True}
+                else:
+                    receipt['pdf_delivery_pending'] = True
+                atomic_write_text(receipt_path, json.dumps(receipt))
+            pages = receipt['pdf_failed_pages']
+            if pages:
+                warning = 'Partial PDF: OCR still needed on pages ' + ', '.join(map(str, pages)) + '.'
+
+            def persist():
+                atomic_write_text(receipt_path, json.dumps(receipt))
+
+            def record_primary(output):
+                nonlocal primary_published
+                self.store.update_item(item_id, output_path=str(output), word_count=receipt['word_count'])
+                primary_published = True
+
+            publish_pdf_snapshot(self.store.get_item(item_id), receipt, persist=persist, on_primary=record_primary)
+            receipt['pdf_delivery_pending'] = False
+            persist()
+            if pages:
+                self.store.update_item(item_id, status='failed', error=warning)
+                self.on_status(f"Saved partial: {item['title']} — {warning}")
+            else:
+                self.store.update_item(item_id, status='done', error='')
+                self.on_status(f"Saved: {item['title']}")
+        except Exception as exc:
+            if warning and (not primary_published or receipt['pdf_failed_pages']):
+                error = f'{warning}\n{exc}'
+            elif legacy and not (work / 'pdf-progress.json').is_file():
+                error = f'{legacy[0]}\nCould not recover the saved partial PDF: {exc}'
+            else:
+                error = f'Converted PDF is saved; additional delivery failed: {exc}' if primary_published else str(exc)
+            self.store.update_item(item_id, status='failed', error=error)
+            self.on_status(f"Failed: {item['title']}: {error}")
         return True
 
     def _publish(self, item, receipt):

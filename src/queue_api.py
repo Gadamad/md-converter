@@ -61,6 +61,12 @@ class SavedQueueApi:
     def _needs_review(item):
         return item['status'] == 'failed' and review_failure_code(item) is not None
 
+    @staticmethod
+    def _is_partial_pdf(item):
+        return (item['status'] == 'failed' and item['kind'] == 'file'
+                and Path(item['source']).suffix.lower() == '.pdf'
+                and (item['error'] or '').startswith(('Partial PDF:', 'PARTIAL -> ')))
+
     @classmethod
     def _decorate_review_state(cls, state):
         # Review is a presentation state; schema-1 storage keeps its four durable
@@ -70,6 +76,9 @@ class SavedQueueApi:
             if cls._needs_review(item):
                 item.update(status='review', error_code=review_failure_code(item))
                 state['review'] += 1
+            elif cls._is_partial_pdf(item):
+                # Partial PDFs retain the failed status and use Retry failed.
+                item['partial_pdf'] = True
         state['failed'] -= state['review']
 
     def _queue_changed(self, force=True):
@@ -307,6 +316,28 @@ class SavedQueueApi:
             path = Path(item['output_path'])
             if not path.is_file():
                 raise FileNotFoundError('The saved output is missing or has moved.')
+        subprocess.Popen(['/usr/bin/open', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+
+    def open_partial_pdf(self, item_id):
+        """Open the published Markdown for an incomplete PDF conversion."""
+        item = self._active_item(item_id)
+        if not self._is_partial_pdf(item):
+            raise ValueError('Open partial is available for a partial PDF conversion only.')
+        output = item['output_path']
+        if not output:
+            raise FileNotFoundError('The partial PDF export has not been saved yet.')
+        root = item['options'].get('output_dir')
+        if not isinstance(root, str) or not root or '\x00' in root or '\x00' in output:
+            raise ValueError('The saved folder for this partial PDF export is invalid.')
+        base, path = Path(root), Path(output)
+        if (not base.is_absolute() or not path.is_absolute() or '..' in path.parts
+                or path.parent != base / 'pdf' or path.suffix.lower() != '.md'):
+            raise ValueError('The partial PDF export must be a Markdown file in its saved PDF output folder.')
+        if any(component.is_symlink() for component in (path, *path.parents)):
+            raise ValueError('Cannot open a partial PDF export through a symbolic link.')
+        if not path.is_file():
+            raise FileNotFoundError('The partial PDF export is missing or has moved.')
         subprocess.Popen(['/usr/bin/open', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
 

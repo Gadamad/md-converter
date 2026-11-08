@@ -7,7 +7,7 @@ Turn PDFs, DOCX files, XLSX workbooks, EPUB books, web pages, pasted text, TXT, 
 - A simple macOS app with drag-and-drop, paste, and one-click output folders.
 - A command-line entry point for batch conversion and scripting.
 
-Version 0.4.1 adds an existing-folder picker to **Save an extra copy**, alongside the named-subfolder option. Version 0.4.0 added local EPUB conversion: choose **Preferences → EPUB output → Markdown (.md)** or **Plain text (.txt)**, then add books to the queue as usual. Each book becomes one file in reading order, with Hungarian accents preserved. Extra copies and export retries support both extensions; Obsidian copies remain Markdown notes. Existing document formats, OCR recovery and the aligned footer keep their behavior. Build metadata records the Git revision and a source SHA-256 digest.
+Version 0.4.2 saves partial PDF exports and retries only unresolved pages. Version 0.4.1 added an existing-folder picker to **Save an extra copy**, alongside the named-subfolder option. Version 0.4.0 added local EPUB conversion: choose **Preferences → EPUB output → Markdown (.md)** or **Plain text (.txt)**, then add books to the queue as usual. Each book becomes one file in reading order, with Hungarian accents preserved. Extra copies and export retries support both extensions; Obsidian copies remain Markdown notes. Build metadata records the Git revision and a source SHA-256 digest.
 
 File conversion and OCR run locally on your Mac. Converting a website URL fetches that website; source documents and images are not uploaded to an OCR service.
 
@@ -338,7 +338,7 @@ MIT. See `LICENSE`.
 - Image OCR runs in disposable subprocesses. Timeouts and Abort terminate their process groups, including any Tesseract child.
 - A failed image does not stop the remaining images; failed files and fallback notices appear in the progress report.
 - Repeated exports use numbered filenames, preserving earlier exports and vault copies.
-- Mixed PDFs OCR pages without selectable text when those pages contain image or vector content. OCR failures retain available text and are reported as partial exports.
+- Mixed PDFs OCR pages without selectable text when those pages contain image or vector content. If a queued PDF has unresolved pages, its Markdown is saved with an incomplete-export warning and page numbers. Use **Open partial** on the queue row to read it, and **Try again** or **Retry failed** to run targeted OCR on the unresolved pages. Completed page text is reused. An updated result is saved separately so earlier or edited exports stay available. A retry after a delivery failure can finish the saved file's copies without running OCR again.
 - macOS builds show version 0.1.0 in their window title and store the revision/source hash in `Contents/Info.plist`.
 - `constraints-macos-py314.txt` records the environment used for this release. To reproduce it in a compatible macOS ARM64 / Python 3.14 environment, install with `pip install -r requirements.txt -c constraints-macos-py314.txt`, and install the pinned PyInstaller version from that file for builds.
 

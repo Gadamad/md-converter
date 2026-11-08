@@ -52,7 +52,7 @@ textarea::placeholder { color:var(--muted); }
 .queue-picker-controls .delete-saved-queue { color:var(--danger); } .queue-picker-controls .delete-saved-queue:hover:not(:disabled) { background:var(--danger-soft); }
 .queue-toolbar select { min-width:100px; max-width:280px; flex:1; height:32px; font-size:12px; background:var(--surface); }
 .save-state { margin-left:auto; color:var(--muted); font-size:11px; white-space:nowrap; } .save-state.unsaved { color:var(--danger); }
-.queue-status { font-size:11px; color:var(--muted); white-space:nowrap; } .queue-status.done { color:var(--accent); } .queue-status.failed { color:var(--danger); } .queue-status.processing { color:var(--accent); }
+.queue-status { font-size:11px; color:var(--muted); white-space:nowrap; } .queue-status.done { color:var(--accent); } .queue-status.failed,.queue-status.partial { color:var(--danger); } .queue-status.processing { color:var(--accent); }
 .queue-error { color:var(--danger); font-size:11px; line-height:1.45; margin-top:4px; overflow-wrap:anywhere; -webkit-user-select:text; user-select:text; }
 .queue-error.review { color:var(--muted); }
 .queue-item-actions { display:flex; align-items:center; gap:3px; }
@@ -96,6 +96,7 @@ textarea::placeholder { color:var(--muted); }
 @media(max-height:730px) { .app { padding-top:18px; gap:12px; } .drop-zone { min-height:94px; padding:10px; } .bottom { padding-bottom:16px; }  textarea { height:110px; } }
 @media(max-height:700px) { .app { gap:10px; } .source-heading { margin-bottom:8px; } .drop-zone { min-height:72px; padding:8px; } .drop-symbol { display:none; } textarea { height:76px; } .workspace-toolbar { min-height:42px; } .queue-toolbar { padding-top:8px; padding-bottom:8px; } .bottom { padding-bottom:12px; } }
 @media(max-width:680px) { .app { padding-left:20px; padding-right:20px; } .local-note { display:none; } .input-hint { font-size:11px; } .action-row { gap:6px; flex-wrap:wrap; } .save-options { gap:16px; } button.primary { min-width:130px; } .queue-row { gap:9px; padding:11px 12px; } .queue-item-actions { flex-direction:column; align-items:flex-end; gap:0; } .queue-toolbar select { max-width:none; } }
+@media(max-width:680px) { .partial-pdf-actions { flex-direction:row; align-items:center; gap:3px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
 </style>
 </head>
@@ -286,15 +287,18 @@ function renderSavedQueue(state) {
   meta.textContent = [group,sourceDescription].filter(Boolean).join(' · '); meta.title = [item.group_name,item.source].filter(Boolean).join(' · ');
   copy.append(name,meta);
   if (item.error) { const error = document.createElement('div'); error.className = 'queue-error'+(item.status === 'review' ? ' review' : ''); error.textContent = item.error; copy.appendChild(error); }
-  const status = document.createElement('span'); status.className = 'queue-status '+item.status; status.textContent = {waiting:'Waiting',processing:'Converting',done:'Done',failed:'Failed',review:'Needs review'}[item.status] || item.status;
+  const partialPdf = item.status === 'failed' && item.partial_pdf === true;
+  const status = document.createElement('span'); status.className = 'queue-status '+(partialPdf ? 'partial' : item.status); status.textContent = partialPdf ? 'Partial' : ({waiting:'Waiting',processing:'Converting',done:'Done',failed:'Failed',review:'Needs review'}[item.status] || item.status);
   if (item.output_path) status.title = item.output_path;
-  const actions = document.createElement('div'); actions.className = 'queue-item-actions';
+  const actions = document.createElement('div'); actions.className = 'queue-item-actions'+(partialPdf ? ' partial-pdf-actions' : '');
   const needsReview = item.kind === 'file' && ['failed','review'].includes(item.status);
   if (item.status === 'done') { const open = document.createElement('button'); open.className = 'quiet small queue-recovery-btn queue-open-btn'; open.textContent = 'Open'; const target = item.kind === 'file' ? 'original' : 'output'; open.setAttribute('aria-label','Open '+target+' '+name.textContent); open.title = item.kind === 'file' ? 'Open the original source file' : 'Open the saved Markdown output'; open.onclick = () => callApi('open_queue_item',item.id); actions.appendChild(open); }
+  if (partialPdf && item.output_path?.toLowerCase().endsWith('.md')) { const open = document.createElement('button'); open.className = 'quiet small queue-recovery-btn queue-open-btn'; open.textContent = 'Open partial'; open.setAttribute('aria-label','Open partial '+name.textContent); open.title = 'Open the Markdown saved so far'; open.onclick = () => callApi('open_partial_pdf',item.id); actions.appendChild(open); }
   if (needsReview) {
    for (const [label,action] of [['Preview',()=>callApi('preview_queue_item',item.id)],['Try again',()=>startItemRetry(item.id)],['Skip',()=>mutateQueue('skip_queue_item',item.id)]]) { const button = document.createElement('button'); button.className = 'quiet small queue-recovery-btn'; button.textContent = label; button.setAttribute('aria-label',label+' '+name.textContent); if (label === 'Skip') button.title = 'Keep the original file and record this item as skipped'; button.onclick = action; actions.appendChild(button); }
   }
-  if (item.kind === 'file' && item.status === 'failed' && /locate|moved|missing|not found/i.test(item.error || '')) { const locate = document.createElement('button'); locate.className = 'quiet small queue-locate-btn'; locate.textContent = 'Locate file'; locate.setAttribute('aria-label','Locate file for '+name.textContent); locate.onclick = () => mutateQueue('locate_queue_item',item.id); actions.appendChild(locate); }
+  const canLocate = partialPdf ? /\buse Locate file\b/i.test(item.error || '') : /locate|moved|missing|not found/i.test(item.error || '');
+  if (item.kind === 'file' && item.status === 'failed' && canLocate) { const locate = document.createElement('button'); locate.className = 'quiet small queue-locate-btn'; locate.textContent = 'Locate file'; locate.setAttribute('aria-label','Locate file for '+name.textContent); locate.onclick = () => mutateQueue('locate_queue_item',item.id); actions.appendChild(locate); }
   if (!needsReview) { const remove = document.createElement('button'); remove.className = 'btn folder-remove-btn'; remove.textContent = 'Remove'; remove.setAttribute('aria-label','Remove '+name.textContent); remove.onclick = () => mutateQueue('remove_queue_item',item.id); actions.appendChild(remove); }
   row.append(symbol,copy,status,actions); rows.appendChild(row);
  }
